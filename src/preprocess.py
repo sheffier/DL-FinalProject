@@ -24,6 +24,9 @@ class Dictionary(object):
     def read_vocab(vocab: Set):
         pass
 
+    def __len__(self):
+        """Returns the number of words in the dictionary"""
+        return len(self.id2word)
     # def addSentence(self, sentence):
     #     for word in sentence.split(' '):
     #         self.addWord(word)
@@ -82,11 +85,6 @@ class BpeWordDict(Dictionary):
         self.eos_index = self.word2id[BPE_EOS]
         self.pad_index = self.word2id[WORD_PAD]
         self.sot_index = self.word2id[WORD_SOT]
-
-    # Add this to Dictionary class instead
-    def __len__(self):
-        """Returns the number of words in the dictionary"""
-        return len(self.id2word)
 
     @staticmethod
     def read_vocab(vocab: Set):

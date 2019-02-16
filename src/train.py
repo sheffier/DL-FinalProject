@@ -180,7 +180,7 @@ def main_train():
     word_embeddings.weight.requires_grad = False
 
     field_dict: LabelDict = torch.load('./data/processed_data/train/field.dict')
-    field_embeddings = nn.Embedding(len(field_dict.word2id), bpemb_en.dim // 2, padding_idx=field_dict.pad_index)
+    field_embeddings = nn.Embedding(len(field_dict), bpemb_en.dim // 2, padding_idx=field_dict.pad_index)
     nn.init.normal_(field_embeddings.weight, 0, 0.1)
     nn.init.constant_(field_embeddings.weight[field_dict.pad_index], 0)
     field_embedding_size = field_embeddings.weight.data.size()[1]
@@ -241,8 +241,8 @@ def main_train():
     #     src_generator = device(WrappedEmbeddingGenerator(src_embedding_generator, src_embeddings))
     #     trg_generator = device(WrappedEmbeddingGenerator(trg_embedding_generator, trg_embeddings))
     # else:
-    src_generator = device(LinearGenerator(args.hidden, len(word_dict), len(field_dict.word2id)))
-    trg_generator = device(LinearGenerator(args.hidden, len(word_dict), len(field_dict.word2id)))
+    src_generator = device(LinearGenerator(args.hidden, len(word_dict), len(field_dict)))
+    trg_generator = device(LinearGenerator(args.hidden, len(word_dict), len(field_dict)))
     add_optimizer(src_generator, (src2src_optimizers, trg2src_optimizers))
     add_optimizer(trg_generator, (trg2trg_optimizers, src2trg_optimizers))
 
