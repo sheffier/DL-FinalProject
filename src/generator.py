@@ -19,19 +19,24 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from src.config import bpemb_en
+
 
 class EmbeddingGenerator(nn.Module):
-    def __init__(self, hidden_size, embedding_size):
+    def __init__(self, hidden_size, word_embedding_size, field_embedding_size):
         super(EmbeddingGenerator, self).__init__()
-        self.hidden2embedding = nn.Linear(hidden_size, embedding_size)
-        self.special_out = nn.Linear(embedding_size, data.SPECIAL_SYMBOLS, bias=False)
+        self.hidden2embedding = nn.Linear(hidden_size, word_embedding_size + field_embedding_size)
+        # self.special_out = nn.Linear(word_embedding_size, data.SPECIAL_SYMBOLS, bias=False)
         self.logsoftmax = nn.LogSoftmax()
 
     def forward(self, hidden, embeddings):
         emb = self.hidden2embedding(hidden)
-        word_scores = F.linear(emb, embeddings.weight[1:, :])
-        special_scores = self.special_out(emb)
-        scores = torch.cat((special_scores, word_scores), dim=1)
+        # word_scores = F.linear(emb, embeddings.weight[1:, :])
+        # special_scores = self.special_out(emb)
+        # scores = torch.cat((special_scores, word_scores), dim=1)
+
+        scores = F.linear(emb, embeddings.weight[1:, :])
+
         return self.logsoftmax(scores)
 
     def output_classes(self):
@@ -52,13 +57,14 @@ class WrappedEmbeddingGenerator(nn.Module):
 
 
 class LinearGenerator(nn.Module):
-    def __init__(self, hidden_size, vocabulary_size, bias=True):
+    def __init__(self, hidden_size, word_vocab_size, field_vocab_size, bias=True):
         super(LinearGenerator, self).__init__()
-        self.out = nn.Linear(hidden_size, data.SPECIAL_SYMBOLS + vocabulary_size, bias=bias)
+        self.field_scores = nn.Linear(hidden_size, field_vocab_size, bias=bias)
+        self.word_scores = nn.Linear(hidden_size, word_vocab_size, bias=bias)
         self.logsoftmax = nn.LogSoftmax(dim=1)
 
     def forward(self, hidden):
-        return self.logsoftmax(self.out(hidden))
+        return self.logsoftmax(self.word_scores(hidden)), self.logsoftmax(self.field_scores(hidden))
 
     def output_classes(self):
-        return self.out.weight.size()[0]
+        return self.word_scores.weight.size()[0], self.field_scores.weight.size()[0]

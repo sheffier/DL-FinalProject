@@ -9,8 +9,9 @@ import pandas as pd
 FIELD_PAD, FIELD_UNK, FIELD_NULL = '<PAD>', '<UNK>', '<NULL>'
 SPECIAL_FIELD_SYMS = 3
 
-WORD_PAD, WORD_UNK, WORD_SOS, WORD_SOT, WORD_EOS = '<PAD>', '<UNK>', '<SOS>', '<SOT>', '<EOS>'
+BPE_UNK, BPE_BOS, BPE_EOS, WORD_PAD, WORD_SOT = '<unk>', '<s>', '</s>', '<pad>', '<sot>'
 SPECIAL_WORD_SYMS = 5
+
 
 class Dictionary(object):
     def __init__(self, word2id: Dict, id2word: Dict):
@@ -70,6 +71,34 @@ class LabelDict(Dictionary):
         id2word = {v: k for k, v in word2id.items()}
 
         return LabelDict("Field", word2id, id2word)
+
+
+class BpeWordDict(Dictionary):
+    def __init__(self, name: str, word2id: Dict, id2word: Dict):
+        super().__init__(word2id, id2word)
+        self.name = name
+        self.unk_index = self.word2id[BPE_UNK]
+        self.bos_index = self.word2id[BPE_BOS]
+        self.eos_index = self.word2id[BPE_EOS]
+        self.pad_index = self.word2id[WORD_PAD]
+        self.sot_index = self.word2id[WORD_SOT]
+
+    # Add this to Dictionary class instead
+    def __len__(self):
+        """Returns the number of words in the dictionary"""
+        return len(self.id2word)
+
+    @staticmethod
+    def read_vocab(vocab: Set):
+        word2id = {}
+        for idx, word in enumerate(vocab):
+            word2id[word] = idx
+
+        word2id[WORD_PAD] = idx + 1
+        word2id[WORD_SOT] = idx + 2
+        id2word = {v: k for k, v in word2id.items()}
+
+        return BpeWordDict("Bpe words", word2id, id2word)
 
 
 class Article(object):
@@ -598,11 +627,13 @@ def make_dirs():
 
 
 if __name__ == '__main__':
-    # make_dirs()
+    make_dirs()
     field_vocab = create_field_label_vocab()
     field_dict = LabelDict.read_vocab(field_vocab)
+    torch.save(field_dict, '../data/processed_data/train/field.dict')
 
     bpemb_en = BPEmb(lang="en")
+    bpe_dict = BpeWordDict.read_vocab(bpemb_en.words)
     prepare_infobox_datasets(field_dict, bpemb_en)
     prepare_articles_dataset(field_dict, bpemb_en)
 
@@ -613,5 +644,6 @@ if __name__ == '__main__':
     # prepare_infobox_datasets()
     # prepare_articles_dataset()
 
-    #check_generated_box()
+    # check_generated_box()
     print("check done")
+

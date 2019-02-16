@@ -18,9 +18,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from src.config import bpemb_en
+
 
 SPECIAL_SYMBOLS = 4
-PAD, OOV, EOS, SOS = 0, 1, 2, 3
+PAD, OOV, SOS, EOS = 0, 1, 2, 3
+FIELD_SPECIAL_SYMBOLS = 6
+FIELD_PAD, FIELD_OOV, FIELD_TABLE_SOS, FIELD_TEXT_SOS, FIELD_TABLE_EOS, FIELD_TEXT_EOS = 0, 1, 2, 3, 4, 5
 
 
 class Dictionary:
@@ -63,9 +67,14 @@ def word_ids(ids):
 
 
 class CorpusReader:
-    def __init__(self, src_file, trg_file=None, max_sentence_length=80, cache_size=1000):
-        self.src_file = src_file
-        self.trg_file = trg_file
+    def __init__(self, src_word_file, src_field_file, trg_word_file=None, trg_field_file=None, max_sentence_length=80,
+                 cache_size=1000):
+        assert (trg_word_file is None and trg_field_file is None) or\
+               (trg_word_file is not None and trg_field_file is not None)
+        self.src_word_file = src_word_file
+        self.src_field_file = src_field_file
+        self.trg_word_file = trg_word_file
+        self.trg_field_file = trg_field_file
         self.epoch = 1
         self.pending = set()
         self.length2pending = collections.defaultdict(set)
@@ -80,17 +89,42 @@ class CorpusReader:
         self.pending = set()
         self.length2pending = collections.defaultdict(set)
         while len(self.cache) < self.cache_size:
-            src = self.src_file.readline()
-            trg = self.trg_file.readline() if self.trg_file is not None else src
-            src_length = len(tokenize(src))
-            trg_length = len(tokenize(trg))
-            if src == '' and trg == '':
+            # try:
+            #     line = readline()
+            # except StopIteration:
+            #     line =''
+
+            src_word = self.src_word_file.readline()
+            src_field = self.src_field_file.readline()
+            trg_word = self.trg_word_file.readline() if self.trg_word_file is not None else src_word
+            trg_field = self.trg_field_file.readline() if self.trg_field_file is not None else src_field
+
+            src_word_ids = [int(id) for id in src_word.strip().split()]
+            src_field_ids = [int(id) for id in src_field.strip().split()]
+            trg_word_ids = [int(id) for id in trg_word.strip().split()]
+            trg_field_ids = [int(id) for id in trg_field.strip().split()]
+
+            # src_length = len(tokenize(src_word))
+            # trg_length = len(tokenize(trg_word))
+            # assert src_length == len(tokenize(src_field))
+            # assert trg_length == len(tokenize(trg_field))
+
+            src_length = len(src_word_ids)
+            trg_length = len(trg_word_ids)
+
+            assert src_length == len(src_field_ids)
+            assert trg_length == len(trg_field_ids)
+
+            if src_word == '' and trg_word == '':
                 self.epoch += 1
-                self.src_file.seek(0)
-                if self.trg_file is not None:
-                    self.trg_file.seek(0)
+                self.src_word_file.seek(0)
+                self.src_field_file.seek(0)
+                if self.trg_word_file is not None:
+                    self.trg_word_file.seek(0)
+                    self.trg_field_file.seek(0)
             elif 0 < src_length <= self.max_sentence_length and 0 < trg_length <= self.max_sentence_length:
-                self.cache.append(((src_length, trg_length), src.strip(), trg.strip()))
+                self.cache.append(((src_length, trg_length), src_word_ids, trg_word_ids, src_field_ids,
+                                   trg_field_ids))
         for i in range(self.cache_size):
             self.pending.add(i)
             self.length2pending[self.cache[i][0]].add(i)
@@ -139,7 +173,14 @@ class CorpusReader:
                 self.next = i
                 break
 
-        return [self.cache[i][1] for i in indices], [self.cache[i][2] for i in indices]
+        ret_src_sents = [self.cache[i][1] for i in indices]
+        ret_trg_sents = [self.cache[i][2] for i in indices]
+        ret_src_sents_field = [self.cache[i][3] for i in indices]
+        ret_trg_sents_field = [self.cache[i][4] for i in indices]
+
+        return ret_src_sents, ret_trg_sents, ret_src_sents_field, ret_trg_sents_field
+        # return [self.cache[i][1] for i in indices], [self.cache[i][2] for i in indices],\
+        #        [self.cache[i][3] for i in indices], [self.cache[i][4] for i in indices],
 
 
 class BacktranslatorCorpusReader:
@@ -149,10 +190,10 @@ class BacktranslatorCorpusReader:
         self.epoch = corpus.epoch
 
     def next_batch(self, size):
-        src, trg = self.corpus.next_batch(size)
-        src = self.translator.greedy(trg, train=False)
+        src_word, trg_word, src_field, trg_field = self.corpus.next_batch(size)
+        src_word, src_field = self.translator.greedy(trg_word, trg_field, train=False)
         self.epoch = self.corpus.epoch
-        return src, trg
+        return src_word, trg_word, src_field, trg_field
 
 
 def read_embeddings(file, threshold=0, vocabulary=None):

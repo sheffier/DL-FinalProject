@@ -19,34 +19,48 @@ from src.decoder import RNNAttentionDecoder
 from src.generator import *
 from src.translator import Translator
 
+from src.preprocess import BpeWordDict, LabelDict
+
 import argparse
 import numpy as np
 import sys
 import time
 
+from src.config import bpemb_en
+
+from torch import nn
+
+
+
 
 def main_train():
     # Build argument parser
-    parser = argparse.ArgumentParser(description='Train a neural machine translation model')
+    parser = argparse.ArgumentParser(description='Train a table to text model')
 
     # Training corpus
-    corpora_group = parser.add_argument_group('training corpora', 'Corpora related arguments; specify either monolingual or parallel training corpora (or both)')
-    corpora_group.add_argument('--src', help='the source language monolingual corpus')
-    corpora_group.add_argument('--trg', help='the target language monolingual corpus')
-    corpora_group.add_argument('--src2trg', metavar=('SRC', 'TRG'), nargs=2, help='the source-to-target parallel corpus')
-    corpora_group.add_argument('--trg2src', metavar=('TRG', 'SRC'), nargs=2, help='the target-to-source parallel corpus')
+    corpora_group = parser.add_argument_group('training corpora', 'Corpora related arguments; specify either unaligned or aligned training corpora (or both)')
+    # "Languages (type,path)"
+    corpora_group.add_argument('--src_corpus_params', type=str, default="",
+                               help='the source unaligned corpus (type,path). Type = text/table')
+    corpora_group.add_argument('--trg_corpus_params', type=str, default="",
+                               help='the target unaligned corpus (type,path). Type = text/table')
+    # Maybe add src/target type (i.e. text/table)
+
     corpora_group.add_argument('--max_sentence_length', type=int, default=50, help='the maximum sentence length for training (defaults to 50)')
     corpora_group.add_argument('--cache', type=int, default=1000000, help='the cache size (in sentences) for corpus reading (defaults to 1000000)')
     corpora_group.add_argument('--cache_parallel', type=int, default=None, help='the cache size (in sentences) for parallel corpus reading')
 
     # Embeddings/vocabulary
-    embedding_group = parser.add_argument_group('embeddings', 'Embedding related arguments; either give pre-trained cross-lingual embeddings, or a vocabulary and embedding dimensionality to randomly initialize them')
-    embedding_group.add_argument('--src_embeddings', help='the source language word embeddings')
-    embedding_group.add_argument('--trg_embeddings', help='the target language word embeddings')
-    embedding_group.add_argument('--src_vocabulary', help='the source language vocabulary')
-    embedding_group.add_argument('--trg_vocabulary', help='the target language vocabulary')
-    embedding_group.add_argument('--embedding_size', type=int, default=0, help='the word embedding size')
+    embedding_group = parser.add_argument_group('embeddings', 'Embedding related arguments; either give pre-trained embeddings, or a vocabulary and embedding dimensionality to randomly initialize them')
+    embedding_group.add_argument('--word_embeddings', help='table / sentence content embedding')
+    embedding_group.add_argument('--field_embeddings', help='field labels embedding')
+    embedding_group.add_argument('--word_vocabulary', help='table / sentences content vocabulary')
+    embedding_group.add_argument('--field_vocabulary', help='field labels vocabulary')
+    embedding_group.add_argument('--word_embedding_size', type=int, default=0, help='the word embedding size')
+    embedding_group.add_argument('--field_embedding_size', type=int, default=0, help='the word embedding size')
     embedding_group.add_argument('--cutoff', type=int, default=0, help='cutoff vocabulary to the given size')
+
+    # ???
     embedding_group.add_argument('--learn_encoder_embeddings', action='store_true', help='learn the encoder embeddings instead of using the pre-trained ones')
     embedding_group.add_argument('--fixed_decoder_embeddings', action='store_true', help='use fixed embeddings in the decoder instead of learning them from scratch')
     embedding_group.add_argument('--fixed_generator', action='store_true', help='use fixed embeddings in the output softmax instead of learning it from scratch')
@@ -85,21 +99,53 @@ def main_train():
     parser.add_argument('--cuda', default=False, action='store_true', help='use cuda')
 
     # Parse arguments
-    args = parser.parse_args()
+    #args = parser.parse_args()
+
+    args = parser.parse_args(['--src_corpus_params', 'table, ./data/processed_data/train/train.box',
+                              '--trg_corpus_params', 'text, ./data/processed_data/train/train.article'])  # ,
+                              # '--word_embeddings', '',
+                              # '--field_vocabulary', '',
+                              # '--fixed_decoder_embeddings',
+                              # '--fixed_generator',
+                              # '--batch', '2',
+                              # '--cache', '100'])
+
 
     # Validate arguments
-    if args.src_embeddings is None and args.src_vocabulary is None or args.trg_embeddings is None and args.trg_vocabulary is None:
-        print('Either an embedding or a vocabulary file must be provided')
+    if args.src_corpus_params is None or args.trg_corpus_params is None:
+        print("Must supply corpus")
         sys.exit(-1)
-    if (args.src_embeddings is None or args.trg_embeddings is None) and (not args.learn_encoder_embeddings or args.fixed_decoder_embeddings or args.fixed_generator):
-        print('Either provide pre-trained word embeddings or set to learn the encoder/decoder embeddings and generator')
-        sys.exit(-1)
-    if args.src_embeddings is None and args.trg_embeddings is None and args.embedding_size == 0:
-        print('Either provide pre-trained word embeddings or the embedding size')
-        sys.exit(-1)
-    if len(args.validation) % 2 != 0:
-        print('--validation should have an even number of arguments (one pair for each validation set)')
-        sys.exit(-1)
+
+    args.src_corpus_params = args.src_corpus_params.split(',')
+    args.trg_corpus_params = args.trg_corpus_params.split(',')
+    assert len(args.src_corpus_params) == 2
+    assert len(args.trg_corpus_params) == 2
+
+    src_type, src_corpus = args.src_corpus_params
+    trg_type, trg_corpus = args.trg_corpus_params
+
+    src_type = src_type.strip()
+    src_corpus = src_corpus.strip()
+    trg_type = trg_type.strip()
+    trg_corpus = trg_corpus.strip()
+
+    assert src_type != trg_type
+    assert (src_type in ['table', 'text']) and (trg_type in ['table', 'text'])
+
+    # if args.word_embeddings is None and args.word_vocabulary is None or\
+    #         args.field_embeddings is None and args.field_vocabulary is None:
+    #     print('Either an embedding or a vocabulary file must be provided')
+    #     sys.exit(-1)
+    # if args.word_embeddings is None and (not args.learn_encoder_embeddings or args.fixed_decoder_embeddings or args.fixed_generator):
+    #     print('Either provide pre-trained word embeddings or set to learn the encoder/decoder embeddings and generator')
+    #     sys.exit(-1)
+    # if args.word_embeddings is None and args.word_embedding_size == 0 or \
+    #         args.field_embeddings is None and args.field_embedding_size == 0:
+    #     print('Either provide pre-trained embeddings or the embedding size')
+    #     sys.exit(-1)
+    # if len(args.validation) % 2 != 0:
+    #     print('--validation should have an even number of arguments (one pair for each validation set)')
+    #     sys.exit(-1)
 
     # Select device
     device = devices.gpu if args.cuda else devices.cpu
@@ -120,170 +166,241 @@ def main_train():
             direction.append(optimizer)
         return optimizer
 
-    # Load word embeddings
-    src_words = trg_words = src_embeddings = trg_embeddings = src_dictionary = trg_dictionary = None
-    embedding_size = args.embedding_size
-    if args.src_vocabulary is not None:
-        f = open(args.src_vocabulary, encoding=args.encoding, errors='surrogateescape')
-        src_words = [line.strip() for line in f.readlines()]
-        if args.cutoff > 0:
-            src_words = src_words[:args.cutoff]
-        src_dictionary = data.Dictionary(src_words)
-    if args.trg_vocabulary is not None:
-        f = open(args.trg_vocabulary, encoding=args.encoding, errors='surrogateescape')
-        trg_words = [line.strip() for line in f.readlines()]
-        if args.cutoff > 0:
-            trg_words = trg_words[:args.cutoff]
-        trg_dictionary = data.Dictionary(trg_words)
-    if args.src_embeddings is not None:
-        f = open(args.src_embeddings, encoding=args.encoding, errors='surrogateescape')
-        src_embeddings, src_dictionary = data.read_embeddings(f, args.cutoff, src_words)
-        src_embeddings = device(src_embeddings)
-        src_embeddings.requires_grad = False
-        if embedding_size == 0:
-            embedding_size = src_embeddings.weight.data.size()[1]
-        if embedding_size != src_embeddings.weight.data.size()[1]:
-            print('Embedding sizes do not match')
-            sys.exit(-1)
-    if args.trg_embeddings is not None:
-        trg_file = open(args.trg_embeddings, encoding=args.encoding, errors='surrogateescape')
-        trg_embeddings, trg_dictionary = data.read_embeddings(trg_file, args.cutoff, trg_words)
-        trg_embeddings = device(trg_embeddings)
-        trg_embeddings.requires_grad = False
-        if embedding_size == 0:
-            embedding_size = trg_embeddings.weight.data.size()[1]
-        if embedding_size != trg_embeddings.weight.data.size()[1]:
-            print('Embedding sizes do not match')
-            sys.exit(-1)
-    if args.learn_encoder_embeddings:
-        src_encoder_embeddings = device(data.random_embeddings(src_dictionary.size(), embedding_size))
-        trg_encoder_embeddings = device(data.random_embeddings(trg_dictionary.size(), embedding_size))
-        add_optimizer(src_encoder_embeddings, (src2src_optimizers, src2trg_optimizers))
-        add_optimizer(trg_encoder_embeddings, (trg2trg_optimizers, trg2src_optimizers))
-    else:
-        src_encoder_embeddings = src_embeddings
-        trg_encoder_embeddings = trg_embeddings
-    if args.fixed_decoder_embeddings:
-        src_decoder_embeddings = src_embeddings
-        trg_decoder_embeddings = trg_embeddings
-    else:
-        src_decoder_embeddings = device(data.random_embeddings(src_dictionary.size(), embedding_size))
-        trg_decoder_embeddings = device(data.random_embeddings(trg_dictionary.size(), embedding_size))
-        add_optimizer(src_decoder_embeddings, (src2src_optimizers, trg2src_optimizers))
-        add_optimizer(trg_decoder_embeddings, (trg2trg_optimizers, src2trg_optimizers))
-    if args.fixed_generator:
-        src_embedding_generator = device(EmbeddingGenerator(hidden_size=args.hidden, embedding_size=embedding_size))
-        trg_embedding_generator = device(EmbeddingGenerator(hidden_size=args.hidden, embedding_size=embedding_size))
-        add_optimizer(src_embedding_generator, (src2src_optimizers, trg2src_optimizers))
-        add_optimizer(trg_embedding_generator, (trg2trg_optimizers, src2trg_optimizers))
-        src_generator = device(WrappedEmbeddingGenerator(src_embedding_generator, src_embeddings))
-        trg_generator = device(WrappedEmbeddingGenerator(trg_embedding_generator, trg_embeddings))
-    else:
-        src_generator = device(LinearGenerator(args.hidden, src_dictionary.size()))
-        trg_generator = device(LinearGenerator(args.hidden, trg_dictionary.size()))
-        add_optimizer(src_generator, (src2src_optimizers, trg2src_optimizers))
-        add_optimizer(trg_generator, (trg2trg_optimizers, src2trg_optimizers))
+    # Load embedding and/or vocab
+    word_dict = BpeWordDict.read_vocab(bpemb_en.words)
+    w_sos_id = {'text': word_dict.bos_index, 'table': word_dict.sot_index}
+
+    word_embeddings = nn.Embedding(len(word_dict), bpemb_en.dim, padding_idx=word_dict.pad_index)
+    nn.init.normal_(word_embeddings.weight, 0, 0.1)
+    nn.init.constant_(word_embeddings.weight[word_dict.pad_index], 0)
+    with torch.no_grad():
+        word_embeddings.weight[:bpemb_en.vs, :] = torch.from_numpy(bpemb_en.vectors)
+    word_embedding_size = word_embeddings.weight.data.size()[1]
+    word_embeddings = device(word_embeddings)
+    word_embeddings.weight.requires_grad = False
+
+    field_dict: LabelDict = torch.load('./data/processed_data/train/field.dict')
+    field_embeddings = nn.Embedding(len(field_dict.word2id), bpemb_en.dim // 2, padding_idx=field_dict.pad_index)
+    nn.init.normal_(field_embeddings.weight, 0, 0.1)
+    nn.init.constant_(field_embeddings.weight[field_dict.pad_index], 0)
+    field_embedding_size = field_embeddings.weight.data.size()[1]
+    field_embeddings = device(field_embeddings)
+    field_embeddings.weight.requires_grad = True
+
+    # words = field_labels = word_embeddings = field_embeddings = None
+    # word_embedding_size = args.word_embedding_size
+    # field_embedding_size = args.field_embedding_size
+    # if args.word_vocabulary is not None:
+    #     f = open(args.word_vocabulary, encoding=args.encoding, errors='surrogateescape')
+    #     words = [line.strip() for line in f.readlines()]
+    #     if args.cutoff > 0:
+    #         words = words[:args.cutoff]
+    #     word_dict = data.Dictionary(words)
+    # if args.field_vocabulary is not None:
+    #     f = open(args.field_vocabulary, encoding=args.encoding, errors='surrogateescape')
+    #     field_labels = [line.strip() for line in f.readlines()]
+    #     if args.cutoff > 0:
+    #         field_labels = field_labels[:args.cutoff]
+    #     field_dict = data.Dictionary(field_labels)
+    # if args.word_embeddings is not None:
+    #     f = open(args.word_embeddings, encoding=args.encoding, errors='surrogateescape')
+    #     word_embeddings, word_dict = data.read_embeddings(f, args.cutoff, words)
+    #     word_embeddings = device(word_embeddings)
+    #     word_embeddings.requires_grad = False
+    #     if word_embedding_size == 0:
+    #         word_embedding_size = word_embeddings.weight.data.size()[1]
+    #     if word_embedding_size != word_embeddings.weight.data.size()[1]:
+    #         print('Word Embedding sizes do not match')
+    #         sys.exit(-1)
+    # if args.field_embeddings is not None:
+    #     f = open(args.field_embeddings, encoding=args.encoding, errors='surrogateescape')
+    #     field_embeddings, field_dict = data.read_embeddings(f, args.cutoff, field_labels)
+    #     field_embeddings = device(field_embeddings)
+    #     field_embeddings.requires_grad = False
+    #     if field_embedding_size == 0:
+    #         field_embedding_size = field_embeddings.weight.data.size()[1]
+    #     if field_embedding_size != field_embeddings.weight.data.size()[1]:
+    #         print('Field Embedding sizes do not match')
+    #         sys.exit(-1)
+
+    src_encoder_word_embeddings = word_embeddings
+    trg_encoder_word_embeddings = word_embeddings
+    src_encoder_field_embeddings = field_embeddings
+    trg_encoder_field_embeddings = field_embeddings
+
+    src_decoder_word_embeddings = word_embeddings
+    trg_decoder_word_embeddings = word_embeddings
+    src_decoder_field_embeddings = field_embeddings
+    trg_decoder_field_embeddings = field_embeddings
+
+    # if args.fixed_generator:
+    #     src_embedding_generator = device(EmbeddingGenerator(hidden_size=args.hidden, word_embedding_size=word_embedding_size))
+    #     trg_embedding_generator = device(EmbeddingGenerator(hidden_size=args.hidden, word_embedding_size=word_embedding_size))
+    #     add_optimizer(src_embedding_generator, (src2src_optimizers, trg2src_optimizers))
+    #     add_optimizer(trg_embedding_generator, (trg2trg_optimizers, src2trg_optimizers))
+    #     src_generator = device(WrappedEmbeddingGenerator(src_embedding_generator, src_embeddings))
+    #     trg_generator = device(WrappedEmbeddingGenerator(trg_embedding_generator, trg_embeddings))
+    # else:
+    src_generator = device(LinearGenerator(args.hidden, len(word_dict), len(field_dict.word2id)))
+    trg_generator = device(LinearGenerator(args.hidden, len(word_dict), len(field_dict.word2id)))
+    add_optimizer(src_generator, (src2src_optimizers, trg2src_optimizers))
+    add_optimizer(trg_generator, (trg2trg_optimizers, src2trg_optimizers))
 
     # Build encoder
-    encoder = device(RNNEncoder(embedding_size=embedding_size, hidden_size=args.hidden,
-                                bidirectional=not args.disable_bidirectional, layers=args.layers, dropout=args.dropout))
+    encoder = device(RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
+                                hidden_size=args.hidden, bidirectional=not args.disable_bidirectional,
+                                layers=args.layers, dropout=args.dropout))
     add_optimizer(encoder, (src2src_optimizers, trg2trg_optimizers, src2trg_optimizers, trg2src_optimizers))
 
     # Build decoders
-    src_decoder = device(RNNAttentionDecoder(embedding_size=embedding_size, hidden_size=args.hidden, layers=args.layers, dropout=args.dropout))
-    trg_decoder = device(RNNAttentionDecoder(embedding_size=embedding_size, hidden_size=args.hidden, layers=args.layers, dropout=args.dropout))
-    add_optimizer(src_decoder, (src2src_optimizers, trg2src_optimizers))
-    add_optimizer(trg_decoder, (trg2trg_optimizers, src2trg_optimizers))
+    decoder = device(RNNAttentionDecoder(word_embedding_size=word_embedding_size,
+                                         field_embedding_size=field_embedding_size, hidden_size=args.hidden,
+                                         layers=args.layers, dropout=args.dropout, input_feeding=False))
+    add_optimizer(decoder, (src2src_optimizers, trg2trg_optimizers, src2trg_optimizers, trg2src_optimizers))
+
+    # src_decoder = device(RNNAttentionDecoder(word_embedding_size=word_embedding_size, hidden_size=args.hidden, layers=args.layers, dropout=args.dropout))
+    # trg_decoder = device(RNNAttentionDecoder(word_embedding_size=word_embedding_size, hidden_size=args.hidden, layers=args.layers, dropout=args.dropout))
+    # add_optimizer(src_decoder, (src2src_optimizers, trg2src_optimizers))
+    # add_optimizer(trg_decoder, (trg2trg_optimizers, src2trg_optimizers))
 
     # Build translators
-    src2src_translator = Translator(encoder_embeddings=src_encoder_embeddings,
-                                    decoder_embeddings=src_decoder_embeddings, generator=src_generator,
-                                    src_dictionary=src_dictionary, trg_dictionary=src_dictionary, encoder=encoder,
-                                    decoder=src_decoder, denoising=not args.disable_denoising, device=device)
-    src2trg_translator = Translator(encoder_embeddings=src_encoder_embeddings,
-                                    decoder_embeddings=trg_decoder_embeddings, generator=trg_generator,
-                                    src_dictionary=src_dictionary, trg_dictionary=trg_dictionary, encoder=encoder,
-                                    decoder=trg_decoder, denoising=not args.disable_denoising, device=device)
-    trg2trg_translator = Translator(encoder_embeddings=trg_encoder_embeddings,
-                                    decoder_embeddings=trg_decoder_embeddings, generator=trg_generator,
-                                    src_dictionary=trg_dictionary, trg_dictionary=trg_dictionary, encoder=encoder,
-                                    decoder=trg_decoder, denoising=not args.disable_denoising, device=device)
-    trg2src_translator = Translator(encoder_embeddings=trg_encoder_embeddings,
-                                    decoder_embeddings=src_decoder_embeddings, generator=src_generator,
-                                    src_dictionary=trg_dictionary, trg_dictionary=src_dictionary, encoder=encoder,
-                                    decoder=src_decoder, denoising=not args.disable_denoising, device=device)
+    src2src_translator = Translator(encoder_word_embeddings=src_encoder_word_embeddings,
+                                    decoder_word_embeddings=src_decoder_word_embeddings,
+                                    encoder_field_embeddings=src_encoder_field_embeddings,
+                                    decoder_field_embeddings=src_decoder_field_embeddings,
+                                    generator=src_generator,
+                                    src_word_dict=word_dict, trg_word_dict=word_dict,
+                                    src_field_dict=field_dict, trg_field_dict=field_dict,
+                                    src_type=src_type, trg_type=src_type,
+                                    encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[src_type],
+                                    denoising=not args.disable_denoising, device=device)
+    src2trg_translator = Translator(encoder_word_embeddings=src_encoder_word_embeddings,
+                                    decoder_word_embeddings=trg_decoder_word_embeddings,
+                                    encoder_field_embeddings=src_encoder_field_embeddings,
+                                    decoder_field_embeddings=trg_decoder_field_embeddings,
+                                    generator=trg_generator,
+                                    src_word_dict=word_dict, trg_word_dict=word_dict,
+                                    src_field_dict=field_dict, trg_field_dict=field_dict,
+                                    src_type=src_type, trg_type=trg_type,
+                                    encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[trg_type],
+                                    denoising=not args.disable_denoising, device=device)
+    trg2trg_translator = Translator(encoder_word_embeddings=trg_encoder_word_embeddings,
+                                    decoder_word_embeddings=trg_decoder_word_embeddings,
+                                    encoder_field_embeddings=trg_encoder_field_embeddings,
+                                    decoder_field_embeddings=trg_decoder_field_embeddings,
+                                    generator=trg_generator,
+                                    src_word_dict=word_dict, trg_word_dict=word_dict,
+                                    src_field_dict=field_dict, trg_field_dict=field_dict,
+                                    src_type=trg_type, trg_type=trg_type,
+                                    encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[trg_type],
+                                    denoising=not args.disable_denoising, device=device)
+    trg2src_translator = Translator(encoder_word_embeddings=trg_encoder_word_embeddings,
+                                    decoder_word_embeddings=src_decoder_word_embeddings,
+                                    encoder_field_embeddings=trg_encoder_field_embeddings,
+                                    decoder_field_embeddings=src_decoder_field_embeddings,
+                                    generator=src_generator,
+                                    src_word_dict=word_dict, trg_word_dict=word_dict,
+                                    src_field_dict=field_dict, trg_field_dict=field_dict,
+                                    src_type=trg_type, trg_type=src_type,
+                                    encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[src_type],
+                                    denoising=not args.disable_denoising, device=device)
 
     # Build trainers
     trainers = []
     src2src_trainer = trg2trg_trainer = src2trg_trainer = trg2src_trainer = None
     srcback2trg_trainer = trgback2src_trainer = None
-    if args.src is not None:
-        f = open(args.src, encoding=args.encoding, errors='surrogateescape')
-        corpus = data.CorpusReader(f, max_sentence_length=args.max_sentence_length, cache_size=args.cache)
-        src2src_trainer = Trainer(translator=src2src_translator, optimizers=src2src_optimizers, corpus=corpus, batch_size=args.batch)
+    if args.src_corpus_params is not None:
+        f_content = open(src_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
+        f_labels = open(src_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
+        corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
+                                   cache_size=args.cache)
+        src2src_trainer = Trainer(translator=src2src_translator, optimizers=src2src_optimizers, corpus=corpus,
+                                  batch_size=args.batch)
         trainers.append(src2src_trainer)
         if not args.disable_backtranslation:
             trgback2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers,
-                                          corpus=data.BacktranslatorCorpusReader(corpus=corpus, translator=src2trg_translator), batch_size=args.batch)
+                                          corpus=data.BacktranslatorCorpusReader(corpus=corpus,
+                                                                                 translator=src2trg_translator),
+                                          batch_size=args.batch)
             trainers.append(trgback2src_trainer)
-    if args.trg is not None:
-        f = open(args.trg, encoding=args.encoding, errors='surrogateescape')
-        corpus = data.CorpusReader(f, max_sentence_length=args.max_sentence_length, cache_size=args.cache)
-        trg2trg_trainer = Trainer(translator=trg2trg_translator, optimizers=trg2trg_optimizers, corpus=corpus, batch_size=args.batch)
+    if args.trg_corpus_params is not None:
+        f_content = open(trg_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
+        f_labels = open(trg_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
+        corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
+                                   cache_size=args.cache)
+        trg2trg_trainer = Trainer(translator=trg2trg_translator, optimizers=trg2trg_optimizers, corpus=corpus,
+                                  batch_size=args.batch)
         trainers.append(trg2trg_trainer)
         if not args.disable_backtranslation:
             srcback2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers,
-                                          corpus=data.BacktranslatorCorpusReader(corpus=corpus, translator=trg2src_translator), batch_size=args.batch)
+                                          corpus=data.BacktranslatorCorpusReader(corpus=corpus,
+                                                                                 translator=trg2src_translator),
+                                          batch_size=args.batch)
             trainers.append(srcback2trg_trainer)
-    if args.src2trg is not None:
-        f1 = open(args.src2trg[0], encoding=args.encoding, errors='surrogateescape')
-        f2 = open(args.src2trg[1], encoding=args.encoding, errors='surrogateescape')
-        corpus = data.CorpusReader(f1, f2, max_sentence_length=args.max_sentence_length, cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
-        src2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers, corpus=corpus, batch_size=args.batch)
-        trainers.append(src2trg_trainer)
-    if args.trg2src is not None:
-        f1 = open(args.trg2src[0], encoding=args.encoding, errors='surrogateescape')
-        f2 = open(args.trg2src[1], encoding=args.encoding, errors='surrogateescape')
-        corpus = data.CorpusReader(f1, f2, max_sentence_length=args.max_sentence_length, cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
-        trg2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers, corpus=corpus, batch_size=args.batch)
-        trainers.append(trg2src_trainer)
+    # if args.src2trg is not None:
+    #     f1 = open(args.src2trg[0], encoding=args.encoding, errors='surrogateescape')
+    #     f2 = open(args.src2trg[1], encoding=args.encoding, errors='surrogateescape')
+    #     corpus = data.CorpusReader(f1, f2, max_sentence_length=args.max_sentence_length,
+    #                                cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
+    #     src2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers, corpus=corpus,
+    #                               batch_size=args.batch)
+    #     trainers.append(src2trg_trainer)
+    # if args.trg2src is not None:
+    #     f1 = open(args.trg2src[0], encoding=args.encoding, errors='surrogateescape')
+    #     f2 = open(args.trg2src[1], encoding=args.encoding, errors='surrogateescape')
+    #     corpus = data.CorpusReader(f1, f2, max_sentence_length=args.max_sentence_length,
+    #                                cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
+    #     trg2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers, corpus=corpus,
+    #                               batch_size=args.batch)
+    #     trainers.append(trg2src_trainer)
 
     # Build validators
-    src2src_validators = []
-    trg2trg_validators = []
-    src2trg_validators = []
-    trg2src_validators = []
-    for i in range(0, len(args.validation), 2):
-        src_validation = open(args.validation[i],   encoding=args.encoding, errors='surrogateescape').readlines()
-        trg_validation = open(args.validation[i+1], encoding=args.encoding, errors='surrogateescape').readlines()
-        if len(src_validation) != len(trg_validation):
-            print('Validation sizes do not match')
-            sys.exit(-1)
-        map(lambda x: x.strip(), src_validation)
-        map(lambda x: x.strip(), trg_validation)
-        if 'src2src' in args.validation_directions:
-            src2src_validators.append(Validator(src2src_translator, src_validation, src_validation, args.batch, args.validation_beam_size))
-        if 'trg2trg' in args.validation_directions:
-            trg2trg_validators.append(Validator(trg2trg_translator, trg_validation, trg_validation, args.batch, args.validation_beam_size))
-        if 'src2trg' in args.validation_directions:
-            src2trg_validators.append(Validator(src2trg_translator, src_validation, trg_validation, args.batch, args.validation_beam_size))
-        if 'trg2src' in args.validation_directions:
-            trg2src_validators.append(Validator(trg2src_translator, trg_validation, src_validation, args.batch, args.validation_beam_size))
+    # src2src_validators = []
+    # trg2trg_validators = []
+    # src2trg_validators = []
+    # trg2src_validators = []
+    # for i in range(0, len(args.validation), 2):
+    #     src_validation = open(args.validation[i],   encoding=args.encoding, errors='surrogateescape').readlines()
+    #     trg_validation = open(args.validation[i+1], encoding=args.encoding, errors='surrogateescape').readlines()
+    #     if len(src_validation) != len(trg_validation):
+    #         print('Validation sizes do not match')
+    #         sys.exit(-1)
+    #     map(lambda x: x.strip(), src_validation)
+    #     map(lambda x: x.strip(), trg_validation)
+    #     if 'src2src' in args.validation_directions:
+    #         src2src_validators.append(Validator(src2src_translator, src_validation, src_validation, args.batch, args.validation_beam_size))
+    #     if 'trg2trg' in args.validation_directions:
+    #         trg2trg_validators.append(Validator(trg2trg_translator, trg_validation, trg_validation, args.batch, args.validation_beam_size))
+    #     if 'src2trg' in args.validation_directions:
+    #         src2trg_validators.append(Validator(src2trg_translator, src_validation, trg_validation, args.batch, args.validation_beam_size))
+    #     if 'trg2src' in args.validation_directions:
+    #         trg2src_validators.append(Validator(trg2src_translator, trg_validation, src_validation, args.batch, args.validation_beam_size))
 
     # Build loggers
     loggers = []
-    src2src_output = trg2trg_output = src2trg_output = trg2src_output = None
-    if args.validation_output is not None:
-        src2src_output = '{0}.src2src'.format(args.validation_output)
-        trg2trg_output = '{0}.trg2trg'.format(args.validation_output)
-        src2trg_output = '{0}.src2trg'.format(args.validation_output)
-        trg2src_output = '{0}.trg2src'.format(args.validation_output)
+
     loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, [], None, args.encoding))
     loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [], None, args.encoding))
-    loggers.append(Logger('Source to source', src2src_trainer, src2src_validators, src2src_output, args.encoding))
-    loggers.append(Logger('Target to target', trg2trg_trainer, trg2trg_validators, trg2trg_output, args.encoding))
-    loggers.append(Logger('Source to target', src2trg_trainer, src2trg_validators, src2trg_output, args.encoding))
-    loggers.append(Logger('Target to source', trg2src_trainer, trg2src_validators, trg2src_output, args.encoding))
+    loggers.append(Logger('Source to source', src2src_trainer, [], None, args.encoding))
+    loggers.append(Logger('Target to target', trg2trg_trainer, [], None, args.encoding))
+    loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding))
+    loggers.append(Logger('Target to source', trg2src_trainer, [], None, args.encoding))
+
+
+
+    # loggers = []
+    # src2src_output = trg2trg_output = src2trg_output = trg2src_output = None
+    # if args.validation_output is not None:
+    #     src2src_output = '{0}.src2src'.format(args.validation_output)
+    #     trg2trg_output = '{0}.trg2trg'.format(args.validation_output)
+    #     src2trg_output = '{0}.src2trg'.format(args.validation_output)
+    #     trg2src_output = '{0}.trg2src'.format(args.validation_output)
+    # loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, [], None, args.encoding))
+    # loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [], None, args.encoding))
+    # loggers.append(Logger('Source to source', src2src_trainer, src2src_validators, src2src_output, args.encoding))
+    # loggers.append(Logger('Target to target', trg2trg_trainer, trg2trg_validators, trg2trg_output, args.encoding))
+    # loggers.append(Logger('Source to target', src2trg_trainer, src2trg_validators, src2trg_output, args.encoding))
+    # loggers.append(Logger('Target to source', trg2src_trainer, trg2src_validators, trg2src_output, args.encoding))
 
     # Method to save models
     def save_models(name):
@@ -326,20 +443,21 @@ class Trainer:
 
         # Read input sentences
         t = time.time()
-        src, trg = self.corpus.next_batch(self.batch_size)
-        self.src_word_count += sum([len(data.tokenize(sentence)) + 1 for sentence in src])  # TODO Depends on special symbols EOS/SOS
-        self.trg_word_count += sum([len(data.tokenize(sentence)) + 1 for sentence in trg])  # TODO Depends on special symbols EOS/SOS
+        src_word, trg_word, src_field, trg_field = self.corpus.next_batch(self.batch_size)
+        self.src_word_count += sum([len(sentence) + 1 for sentence in src_word])  # TODO Depends on special symbols EOS/SOS
+        self.trg_word_count += sum([len(sentence) + 1 for sentence in trg_word])  # TODO Depends on special symbols EOS/SOS
         self.io_time += time.time() - t
 
         # Compute loss
         t = time.time()
-        loss = self.translator.score(src, trg, train=True)
-        self.loss += loss.data[0]
+        word_loss, field_loss = self.translator.score(src_word, trg_word, src_field, trg_field, train=True)
+        total_loss = word_loss + field_loss
+        self.word_loss += word_loss.item()
         self.forward_time += time.time() - t
 
         # Backpropagate error + optimize
         t = time.time()
-        loss.div(self.batch_size).backward()
+        total_loss.div(self.batch_size).backward()
         for optimizer in self.optimizers:
             optimizer.step()
         self.backward_time += time.time() - t
@@ -350,10 +468,11 @@ class Trainer:
         self.io_time = 0
         self.forward_time = 0
         self.backward_time = 0
-        self.loss = 0
+        self.word_loss = 0
+        self.field_loss = 0
 
     def perplexity_per_word(self):
-        return np.exp(self.loss/self.trg_word_count)
+        return np.exp(self.word_loss/self.trg_word_count)
 
     def total_time(self):
         return self.io_time + self.forward_time + self.backward_time
@@ -383,7 +502,8 @@ class Validator:
         loss = 0
         for i in range(0, self.sentence_count, self.batch_size):
             j = min(i + self.batch_size, self.sentence_count)
-            loss += self.translator.score(self.sorted_source[i:j], self.sorted_reference[i:j], train=False).data[0]
+            word_loss, field_loss = self.translator.score(self.sorted_source[i:j], self.sorted_reference[i:j], train=False).data[0]
+            loss += word_loss
         return np.exp(loss/self.reference_word_count)
 
     def translate(self):

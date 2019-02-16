@@ -19,9 +19,11 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
+from src.config import bpemb_en
 
 class RNNEncoder(nn.Module):
-    def __init__(self, embedding_size, hidden_size, bidirectional=False, layers=1, dropout=0):
+    def __init__(self, word_embedding_size, field_embedding_size, hidden_size, bidirectional=False, layers=1,
+                 dropout=0):
         super(RNNEncoder, self).__init__()
         if bidirectional and hidden_size % 2 != 0:
             raise ValueError('The hidden dimension must be even for bidirectional encoders')
@@ -29,22 +31,26 @@ class RNNEncoder(nn.Module):
         self.bidirectional = bidirectional
         self.layers = layers
         self.hidden_size = hidden_size // self.directions
-        self.special_embeddings = nn.Embedding(data.SPECIAL_SYMBOLS+1, embedding_size, padding_idx=0)
-        self.rnn = nn.GRU(embedding_size, self.hidden_size, bidirectional=bidirectional, num_layers=layers,
-                          dropout=dropout)
+        # self.special_embeddings = nn.Embedding(data.SPECIAL_SYMBOLS+1, word_embedding_size, padding_idx=0)
+        self.rnn = nn.GRU(word_embedding_size + field_embedding_size, self.hidden_size, bidirectional=bidirectional,
+                          num_layers=layers, dropout=dropout)
 
-    def forward(self, ids, lengths, word_embeddings, hidden):
+    def forward(self, word_ids, field_ids, lengths, word_embeddings, field_embeddings, hidden):
         sorted_lengths = sorted(lengths, reverse=True)
         is_sorted = sorted_lengths == lengths
         is_varlen = sorted_lengths[0] != sorted_lengths[-1]
         if not is_sorted:
             true2sorted = sorted(range(len(lengths)), key=lambda x: -lengths[x])
             sorted2true = sorted(range(len(lengths)), key=lambda x: true2sorted[x])
-            ids = torch.stack([ids[:, i] for i in true2sorted], dim=1)
+            word_ids = torch.stack([word_ids[:, i] for i in true2sorted], dim=1)
+            field_ids = torch.stack([field_ids[:, i] for i in true2sorted], dim=1)
             lengths = [lengths[i] for i in true2sorted]
-        embeddings = word_embeddings(data.word_ids(ids)) + self.special_embeddings(data.special_ids(ids))
+        w_embeddings = word_embeddings(word_ids)  # + self.special_embeddings(data.special_ids(word_ids))
+        f_embeddings = field_embeddings(field_ids)  # + self.special_embeddings(data.special_ids(word_ids))
+        embeddings = torch.cat([w_embeddings, f_embeddings], 2)   # ????
         if is_varlen:
             embeddings = nn.utils.rnn.pack_padded_sequence(embeddings, lengths)
+
         output, hidden = self.rnn(embeddings, hidden)
         if self.bidirectional:
             hidden = torch.stack([torch.cat((hidden[2*i], hidden[2*i+1]), dim=1) for i in range(self.layers)])

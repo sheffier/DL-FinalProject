@@ -20,33 +20,43 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
+from src.config import bpemb_en
+
 
 class RNNAttentionDecoder(nn.Module):
-    def __init__(self, embedding_size, hidden_size, layers=1, dropout=0, input_feeding=True):
+    def __init__(self, word_embedding_size, field_embedding_size, hidden_size, layers=1, dropout=0, input_feeding=True):
         super(RNNAttentionDecoder, self).__init__()
         self.layers = layers
         self.hidden_size = hidden_size
-        self.special_embeddings = nn.Embedding(data.SPECIAL_SYMBOLS+1, embedding_size, padding_idx=0)
+        # self.special_embeddings = nn.Embedding(data.SPECIAL_SYMBOLS+1, word_embedding_size, padding_idx=0)
         self.attention = GlobalAttention(hidden_size, alignment_function='general')
         self.input_feeding = input_feeding
-        self.input_size = embedding_size + hidden_size if input_feeding else embedding_size
+        self.input_size = word_embedding_size + field_embedding_size
+        if input_feeding:
+            self.input_size += hidden_size
+
         self.stacked_rnn = StackedGRU(self.input_size, hidden_size, layers=layers, dropout=dropout)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, ids, lengths, word_embeddings, hidden, context, context_mask, prev_output, generator):
-        embeddings = word_embeddings(data.word_ids(ids)) + self.special_embeddings(data.special_ids(ids))
+    def forward(self, word_ids, field_ids, lengths, word_embeddings, field_embeddings, hidden, context, context_mask,
+                prev_output, generator):
+        w_embeddings = word_embeddings(word_ids)  # + self.special_embeddings(data.special_ids(word_ids))
+        f_embeddings = field_embeddings(field_ids)  # ???
         output = prev_output
-        scores = []
-        for emb in embeddings.split(1):
+        word_scores = []
+        field_scores = []
+        for w_emb, f_emb in zip(w_embeddings.split(1), f_embeddings.split(1)):
             if self.input_feeding:
-                input = torch.cat([emb.squeeze(0), output], 1)
+                input = torch.cat([w_emb.squeeze(0), f_emb.squeeze(0), output], 2)
             else:
-                input = emb.squeeze(0)
+                input = torch.cat([w_emb.squeeze(0), f_emb.squeeze(0)], 1)
             output, hidden = self.stacked_rnn(input, hidden)
             output = self.attention(output, context, context_mask)
             output = self.dropout(output)
-            scores.append(generator(output))
-        return torch.stack(scores), hidden, output
+            word_score, field_score = generator(output)
+            word_scores.append(word_score)
+            field_scores.append(field_score)
+        return torch.stack(word_scores), torch.stack(field_scores), hidden, output
 
     def initial_output(self, batch_size):
         return Variable(torch.zeros(batch_size, self.hidden_size), requires_grad=False)
