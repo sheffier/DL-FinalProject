@@ -40,9 +40,9 @@ def main_train():
     # Training corpus
     corpora_group = parser.add_argument_group('training corpora', 'Corpora related arguments; specify either unaligned or aligned training corpora (or both)')
     # "Languages (type,path)"
-    corpora_group.add_argument('--src_corpus_params', type=str, default="",
+    corpora_group.add_argument('--src_corpus_params', type=str, default='table, ./data/processed_data/train/train.box',
                                help='the source unaligned corpus (type,path). Type = text/table')
-    corpora_group.add_argument('--trg_corpus_params', type=str, default="",
+    corpora_group.add_argument('--trg_corpus_params', type=str, default='text, ./data/processed_data/train/train.article',
                                help='the target unaligned corpus (type,path). Type = text/table')
     # Maybe add src/target type (i.e. text/table)
 
@@ -99,16 +99,18 @@ def main_train():
     parser.add_argument('--cuda', default=False, action='store_true', help='use cuda')
 
     # Parse arguments
-    #args = parser.parse_args()
+    args = parser.parse_args()
 
-    args = parser.parse_args(['--src_corpus_params', 'table, ./data/processed_data/train/train.box',
-                              '--trg_corpus_params', 'text, ./data/processed_data/train/train.article'])  # ,
-                              # '--word_embeddings', '',
-                              # '--field_vocabulary', '',
-                              # '--fixed_decoder_embeddings',
-                              # '--fixed_generator',
-                              # '--batch', '2',
-                              # '--cache', '100'])
+    print("Log every %d intervals" % args.log_interval)
+    # args = parser.parse_args(['--src_corpus_params', 'table, ./data/processed_data/train/train.box',
+    #                           '--trg_corpus_params', 'text, ./data/processed_data/train/train.article',
+    #                           '--log_interval', '10'])  # ,
+    #                           # '--word_embeddings', '',
+    #                           # '--field_vocabulary', '',
+    #                           # '--fixed_decoder_embeddings',
+    #                           # '--fixed_generator',
+    #                           # '--batch', '2',
+    #                           # '--cache', '100'])
 
 
     # Validate arguments
