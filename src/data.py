@@ -88,12 +88,13 @@ class CorpusReader:
         self.cache = [self.cache[i] for i in self.pending]
         self.pending = set()
         self.length2pending = collections.defaultdict(set)
+
+        print("Cache occupancy %d/%d. Filling cache..." % (len(self.cache), self.cache_size))
         while len(self.cache) < self.cache_size:
             # try:
             #     line = readline()
             # except StopIteration:
             #     line =''
-
             src_word = self.src_word_file.readline()
             src_field = self.src_field_file.readline()
             trg_word = self.trg_word_file.readline() if self.trg_word_file is not None else src_word
@@ -125,6 +126,8 @@ class CorpusReader:
             elif 0 < src_length <= self.max_sentence_length and 0 < trg_length <= self.max_sentence_length:
                 self.cache.append(((src_length, trg_length), src_word_ids, trg_word_ids, src_field_ids,
                                    trg_field_ids))
+
+        print("Cache filed")
         for i in range(self.cache_size):
             self.pending.add(i)
             self.length2pending[self.cache[i][0]].add(i)
