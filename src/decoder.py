@@ -24,8 +24,10 @@ from src.config import bpemb_en
 
 
 class RNNAttentionDecoder(nn.Module):
-    def __init__(self, word_embedding_size, field_embedding_size, hidden_size, layers=1, dropout=0, input_feeding=True):
+    def __init__(self, word_embedding_size, field_embedding_size, hidden_size, layers=1, dropout=0, input_feeding=True,
+                 batch_first=False):
         super(RNNAttentionDecoder, self).__init__()
+        self.batch_first = batch_first
         self.layers = layers
         self.hidden_size = hidden_size
         # self.special_embeddings = nn.Embedding(data.SPECIAL_SYMBOLS+1, word_embedding_size, padding_idx=0)

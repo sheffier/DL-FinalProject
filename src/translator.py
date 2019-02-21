@@ -44,6 +44,10 @@ class Translator:
         self.trg_field_dict: LabelDict = trg_field_dict
         self.encoder = encoder
         self.decoder = decoder
+
+        assert self.encoder.batch_first == self.decoder.batch_first
+
+        self.batch_first = self.encoder.batch_first
         self.denoising = denoising
         self.device = device
         self.w_pad_id = self.src_word_dict.pad_index
@@ -96,6 +100,18 @@ class Translator:
 
         return list(sents), list(sents_field), list(lengths)
 
+    def add_padding(self, sents, sents_field, max_length):
+        sents = [s + [self.w_pad_id]*(max_length-len(s)) for s in sents]
+        sents_field = [s + [self.f_pad_id] * (max_length - len(s)) for s in sents_field]
+
+        return sents, sents_field
+
+    def transpose_ids(self, sents, sents_field, max_length):
+        sents = [[sents[i][j] for i in range(len(sents))] for j in range(max_length)]
+        sents_field = [[sents_field[i][j] for i in range(len(sents_field))] for j in range(max_length)]
+
+        return sents, sents_field
+
     def pad_and_trans_ids(self, sents, sents_field, max_length):
         # Padding
         sents = [s + [self.w_pad_id]*(max_length-len(s)) for s in sents]
@@ -110,7 +126,13 @@ class Translator:
     def preprocess_ids(self, sentences, sentences_field, eos=False, sos=False):
         word_ids, field_ids, lengths = self.add_control_sym(sentences, sentences_field, eos, sos)
         max_length = max(lengths)
-        word_ids, field_ids = self.pad_and_trans_ids(word_ids, field_ids, max_length)
+
+        # Padding
+        word_ids, field_ids = self.add_padding(word_ids, field_ids, max_length)
+
+        if not self.batch_first:
+            # batch*len -> len*batch
+            word_ids, field_ids = self.transpose_ids(word_ids, field_ids, max_length)
 
         return word_ids, field_ids, lengths
 
@@ -124,8 +146,12 @@ class Translator:
                 if length > 2:
                     for it in range(length//2):
                         j = random.randint(0, length-2)
-                        word_ids[i][j], word_ids[i][j+1] = word_ids[i][j+1], word_ids[i][j]
-                        field_ids[i][j], field_ids[i][j + 1] = field_ids[j + 1][i], field_ids[i][j]
+                        if self.batch_first:
+                            word_ids[i][j], word_ids[i][j + 1] = word_ids[i][j + 1], word_ids[i][j]
+                            field_ids[i][j], field_ids[i][j + 1] = field_ids[i][j + 1], field_ids[i][j]
+                        else:
+                            word_ids[j][i], word_ids[j + 1][i] = word_ids[j + 1][i], word_ids[j][i]
+                            field_ids[j][i], field_ids[j + 1][i] = field_ids[j + 1][i], field_ids[j][i]
 
         with torch.no_grad():
             var_wordids = torch.LongTensor(word_ids).to(self.device)

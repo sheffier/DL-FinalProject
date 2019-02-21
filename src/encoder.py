@@ -21,19 +21,21 @@ from torch.autograd import Variable
 
 from src.config import bpemb_en
 
+
 class RNNEncoder(nn.Module):
     def __init__(self, word_embedding_size, field_embedding_size, hidden_size, bidirectional=False, layers=1,
-                 dropout=0):
+                 dropout=0, batch_first=False):
         super(RNNEncoder, self).__init__()
         if bidirectional and hidden_size % 2 != 0:
             raise ValueError('The hidden dimension must be even for bidirectional encoders')
         self.directions = 2 if bidirectional else 1
         self.bidirectional = bidirectional
+        self.batch_first = batch_first
         self.layers = layers
         self.hidden_size = hidden_size // self.directions
         # self.special_embeddings = nn.Embedding(data.SPECIAL_SYMBOLS+1, word_embedding_size, padding_idx=0)
         self.rnn = nn.GRU(word_embedding_size + field_embedding_size, self.hidden_size, bidirectional=bidirectional,
-                          num_layers=layers, dropout=dropout, batch_first=False)
+                          num_layers=layers, dropout=dropout, batch_first=batch_first)
 
     def forward(self, word_ids, field_ids, lengths, word_embeddings, field_embeddings, hidden):
         sorted_lengths = sorted(lengths, reverse=True)
