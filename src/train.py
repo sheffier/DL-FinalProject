@@ -455,6 +455,7 @@ class Trainer:
         word_loss, field_loss = self.translator.score(src_word, trg_word, src_field, trg_field, train=True)
         total_loss = word_loss + field_loss
         self.word_loss += word_loss.item()
+        self.field_loss += field_loss.item()
         self.forward_time += time.time() - t
 
         # Backpropagate error + optimize
@@ -532,6 +533,14 @@ class Logger:
         if self.trainer is not None or len(self.validators) > 0:
             print('{0}'.format(self.name))
         if self.trainer is not None:
+            w_loss = self.trainer.word_loss/self.trainer.batch_size / self.trainer.trg_word_count
+            f_loss = self.trainer.field_loss/self.trainer.batch_size / self.trainer.trg_word_count
+
+            print('  - Training:   {0:10.2f}   ({1:.2f}s: {2:.2f}tok/s src, {3:.2f}tok/s trg; epoch {4})'
+                  .format(self.trainer.perplexity_per_word(), self.trainer.total_time(),
+                          self.trainer.words_per_second()[0], self.trainer.words_per_second()[1], self.trainer.corpus.epoch))
+            print('w_loss {0} f_loss {1}; io_time {2:.2f}s; fw_time {3:.2f}s; bw_time {4:.2f}s'
+                  .format(w_loss, f_loss, self.trainer.io_time, self.trainer.forward_time, self.trainer.backward_time))
             print('  - Training:   {0:10.2f}   ({1:.2f}s: {2:.2f}tok/s src, {3:.2f}tok/s trg; epoch {4})'
                 .format(self.trainer.perplexity_per_word(), self.trainer.total_time(),
                 self.trainer.words_per_second()[0], self.trainer.words_per_second()[1], self.trainer.corpus.epoch))

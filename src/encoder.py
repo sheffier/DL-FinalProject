@@ -34,6 +34,7 @@ class RNNEncoder(nn.Module):
         # self.special_embeddings = nn.Embedding(data.SPECIAL_SYMBOLS+1, word_embedding_size, padding_idx=0)
         self.rnn = nn.GRU(word_embedding_size + field_embedding_size, self.hidden_size, bidirectional=bidirectional,
                           num_layers=layers, dropout=dropout)
+        print(next(self.rnn.parameters()).is_cuda)
 
     def forward(self, word_ids, field_ids, lengths, word_embeddings, field_embeddings, hidden):
         sorted_lengths = sorted(lengths, reverse=True)

@@ -59,8 +59,8 @@ class Translator:
         word_weight, field_weight = device(word_weight), device(field_weight)
         word_weight[src_word_dict.pad_index] = 0
         field_weight[src_field_dict.pad_index] = 0
-        self.word_criterion = nn.NLLLoss(word_weight, size_average=False)
-        self.field_criterion = nn.NLLLoss(field_weight, size_average=False)
+        self.word_criterion = nn.NLLLoss(word_weight, reduction='sum')
+        self.field_criterion = nn.NLLLoss(field_weight, reduction='sum')
 
     def _train(self, mode):
         self.encoder_word_embeddings.train(mode)
