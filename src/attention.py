@@ -14,6 +14,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import torch.nn as nn
+import logging
+
+
+logger = logging.getLogger()
 
 
 class GlobalAttention(nn.Module):
@@ -34,14 +38,21 @@ class GlobalAttention(nn.Module):
         # context: length*batch*dim
         # ans: batch*dim
 
+        logger.debug('attention: linear_context is on cuda: %d', next(self.linear_context.parameters()).is_cuda)
+        logger.debug('attention: linear_query is on cuda: %d', next(self.linear_query.parameters()).is_cuda)
+        logger.debug('attention: linear_align is on cuda: %d', next(self.linear_align.parameters()).is_cuda)
+
         context_t = context.transpose(0, 1)  # batch*length*dim
 
         # Compute alignment scores
         q = query if self.alignment_function == 'dot' else self.linear_align(query)
         align = context_t.bmm(q.unsqueeze(2)).squeeze(2)  # batch*length
 
+        logger.debug('attention: align is on cuda: %d', align.is_cuda)
+
         # Mask alignment scores
         if mask is not None:
+            logger.debug('attention: mask is on cuda: %d', mask.is_cuda)
             align.data.masked_fill_(mask, -float('inf'))
 
         # Compute attention from alignment scores

@@ -448,8 +448,6 @@ def main_train():
             for logger in loggers:
                 logger.log(curr_iter)
 
-        # step += 1
-
     save_models('final')
 
 
