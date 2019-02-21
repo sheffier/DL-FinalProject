@@ -33,8 +33,7 @@ class RNNEncoder(nn.Module):
         self.hidden_size = hidden_size // self.directions
         # self.special_embeddings = nn.Embedding(data.SPECIAL_SYMBOLS+1, word_embedding_size, padding_idx=0)
         self.rnn = nn.GRU(word_embedding_size + field_embedding_size, self.hidden_size, bidirectional=bidirectional,
-                          num_layers=layers, dropout=dropout)
-        print(next(self.rnn.parameters()).is_cuda)
+                          num_layers=layers, dropout=dropout, batch_first=False)
 
     def forward(self, word_ids, field_ids, lengths, word_embeddings, field_embeddings, hidden):
         sorted_lengths = sorted(lengths, reverse=True)
@@ -50,7 +49,7 @@ class RNNEncoder(nn.Module):
         f_embeddings = field_embeddings(field_ids)  # + self.special_embeddings(data.special_ids(word_ids))
         embeddings = torch.cat([w_embeddings, f_embeddings], 2)   # ????
         if is_varlen:
-            embeddings = nn.utils.rnn.pack_padded_sequence(embeddings, lengths)
+            embeddings = nn.utils.rnn.pack_padded_sequence(embeddings, lengths, batch_first=False)
 
         output, hidden = self.rnn(embeddings, hidden)
         if self.bidirectional:

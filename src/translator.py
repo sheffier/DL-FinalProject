@@ -28,7 +28,7 @@ class Translator:
     def __init__(self, encoder_word_embeddings, decoder_word_embeddings,
                  encoder_field_embeddings, decoder_field_embeddings, generator, src_word_dict,
                  trg_word_dict, src_field_dict, trg_field_dict, src_type, trg_type, encoder, decoder, w_sos_id,
-                 denoising=True, device=devices.default):
+                 denoising=True, device='cpu'):
         self.encoder_word_embeddings = encoder_word_embeddings
         self.decoder_word_embeddings = decoder_word_embeddings
         self.encoder_field_embeddings = encoder_field_embeddings
@@ -56,11 +56,12 @@ class Translator:
         word_class, field_classes = generator.output_classes()
         word_weight = torch.ones(word_class)
         field_weight = torch.ones(field_classes)
-        word_weight, field_weight = device(word_weight), device(field_weight)
         word_weight[src_word_dict.pad_index] = 0
         field_weight[src_field_dict.pad_index] = 0
-        self.word_criterion = nn.NLLLoss(word_weight, reduction='sum')
-        self.field_criterion = nn.NLLLoss(field_weight, reduction='sum')
+        self.word_criterion = nn.NLLLoss(word_weight, reduction='sum').to(device)
+        self.field_criterion = nn.NLLLoss(field_weight, reduction='sum').to(device)
+        print(self.word_criterion.weight.is_cuda)
+        print(self.field_criterion.weight.is_cuda)
 
     def _train(self, mode):
         self.encoder_word_embeddings.train(mode)
@@ -119,13 +120,16 @@ class Translator:
                 if length > 2:
                     for it in range(length//2):
                         j = random.randint(0, length-2)
-                        word_ids[j][i], word_ids[j+1][i] = word_ids[j+1][i], word_ids[j][i]
-                        field_ids[j][i], field_ids[j + 1][i] = field_ids[j + 1][i], field_ids[j][i]
+                        word_ids[i][j], word_ids[i][j+1] = word_ids[i][j+1], word_ids[i][j]
+                        field_ids[i][j], field_ids[i][j + 1] = field_ids[j + 1][i], field_ids[i][j]
 
         with torch.no_grad():
-            var_wordids = self.device(torch.LongTensor(word_ids))
-            var_fieldids = self.device(torch.LongTensor(field_ids))
-        hidden = self.device(self.encoder.initial_hidden(len(sentences)))
+            var_wordids = torch.LongTensor(word_ids).to(self.device)
+            var_fieldids = torch.LongTensor(field_ids).to(self.device)
+            print(var_wordids.is_cuda)
+            print(var_fieldids.is_cuda)
+        hidden = self.encoder.initial_hidden(len(sentences)).to(self.device)
+        print(hidden.is_cuda)
         hidden, context = self.encoder(word_ids=var_wordids, field_ids=var_fieldids, lengths=lengths,
                                        word_embeddings=self.encoder_word_embeddings,
                                        field_embeddings=self.encoder_field_embeddings, hidden=hidden)
@@ -140,16 +144,19 @@ class Translator:
         for i in range(batch_size):
             for j in range(lengths[i], max_length):
                 mask[i, j] = 1
-        return self.device(mask)
+        return mask
 
     def decode(self, sentences, sentences_field, hidden, context, context_mask):
         batch_size = len(sentences)
-        initial_output = self.device(self.decoder.initial_output(batch_size))
+        initial_output = self.decoder.initial_output(batch_size).to(self.device)
+        print(initial_output.is_cuda)
 
         in_word_ids, in_field_ids, lengths = self.preprocess_ids(sentences, sentences_field, sos=True)
 
-        in_var_word_ids = self.device(Variable(torch.LongTensor(in_word_ids), requires_grad=False))
-        in_var_field_ids = self.device(Variable(torch.LongTensor(in_field_ids), requires_grad=False))
+        with torch.no_grad():
+            in_var_word_ids = torch.LongTensor(in_word_ids).to(self.device)
+            in_var_field_ids = torch.LongTensor(in_field_ids).to(self.device)
+
         word_logprobs, field_logprobs, hidden, _ = self.decoder(in_var_word_ids, in_var_field_ids, lengths,
                                                                 self.decoder_word_embeddings,
                                                                 self.decoder_field_embeddings, hidden, context,
@@ -164,23 +171,33 @@ class Translator:
             assert len(sent) == len(sent_field)
 
         hidden, context, context_lengths = self.encode(sentences, field_sentences, train)
+        print(hidden.is_cuda, context.is_cuda)
         context_mask = self.mask(context_lengths)
+        print(context_mask.is_cuda)
         word_translations = [[] for _ in sentences]
         field_translations = [[] for _ in field_sentences]
         prev_words = len(sentences)*[self.w_sos_id]
         prev_fields = len(sentences) * [self.f_null_id]
         pending = set(range(len(sentences)))
-        output = self.device(self.decoder.initial_output(len(sentences)))
+        output = self.decoder.initial_output(len(sentences)).to(self.device)
         while len(pending) > 0:
             # Maybe add teacher forcing?
-            var_word = self.device(Variable(torch.LongTensor([prev_words]), requires_grad=False))
-            var_field = self.device(Variable(torch.LongTensor([prev_fields]), requires_grad=False))
+            with torch.no_grad():
+                var_word = torch.LongTensor([prev_words]).to(self.device)
+                var_field = torch.LongTensor([prev_fields]).to(self.device)
+                print(var_word.is_cuda)
+                print(var_field.is_cuda)
 
             word_logprobs, field_logprobs, hidden, output = self.decoder(var_word, var_field, len(sentences)*[1],
                                                                          self.decoder_word_embeddings,
                                                                          self.decoder_field_embeddings, hidden,
                                                                          context, context_mask, output,
                                                                          self.generator)
+            print(word_logprobs.is_cuda)
+            print(field_logprobs.is_cuda)
+            print(hidden.is_cuda)
+            print(output.is_cuda)
+
             prev_words = word_logprobs.max(dim=2)[1].squeeze().data.cpu().numpy().tolist()
             prev_fields = field_logprobs.max(dim=2)[1].squeeze().data.cpu().numpy().tolist()
             for i in pending.copy():
@@ -280,6 +297,11 @@ class Translator:
         # Encode
         hidden, context, context_lengths = self.encode(src_word, src_field, train)
         context_mask = self.mask(context_lengths)
+        if context_mask is not None:
+            context_mask = context_mask.to(self.device)
+            print(hidden.is_cuda, context.is_cuda, context_mask.is_cuda)
+        else:
+            print(hidden.is_cuda, context.is_cuda)
 
         # Decode
         word_logprobs, field_logprobs, hidden = self.decode(trg_word, trg_field, hidden, context,
@@ -288,8 +310,10 @@ class Translator:
         # Compute loss
         out_word_ids, out_field_ids, lengths = self.preprocess_ids(trg_word, trg_field, eos=True, sos=False)
 
-        out_word_ids_var = self.device(Variable(torch.LongTensor(out_word_ids), requires_grad=False))
-        out_field_ids_var = self.device(Variable(torch.LongTensor(out_field_ids), requires_grad=False))
+        with torch.no_grad():
+            out_word_ids_var = torch.LongTensor(out_word_ids).to(self.device)
+            out_field_ids_var = torch.LongTensor(out_field_ids).to(self.device)
+
         word_loss = self.word_criterion(word_logprobs.view(-1, word_logprobs.size()[-1]), out_word_ids_var.view(-1))
         field_loss = self.field_criterion(field_logprobs.view(-1, field_logprobs.size()[-1]), out_field_ids_var.view(-1))
 

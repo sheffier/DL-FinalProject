@@ -38,10 +38,6 @@ class RNNAttentionDecoder(nn.Module):
         self.stacked_rnn = StackedGRU(self.input_size, hidden_size, layers=layers, dropout=dropout)
         self.dropout = nn.Dropout(dropout)
 
-        print(next(self.stacked_rnn.parameters()).is_cuda)
-        print(next(self.attention.parameters()).is_cuda)
-
-
     def forward(self, word_ids, field_ids, lengths, word_embeddings, field_embeddings, hidden, context, context_mask,
                 prev_output, generator):
         w_embeddings = word_embeddings(word_ids)  # + self.special_embeddings(data.special_ids(word_ids))

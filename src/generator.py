@@ -63,9 +63,6 @@ class LinearGenerator(nn.Module):
         self.word_scores = nn.Linear(hidden_size, word_vocab_size, bias=bias)
         self.logsoftmax = nn.LogSoftmax(dim=1)
 
-        print(next(self.word_scores.parameters()).is_cuda)
-        print(next(self.field_scores.parameters()).is_cuda)
-
     def forward(self, hidden):
         return self.logsoftmax(self.word_scores(hidden)), self.logsoftmax(self.field_scores(hidden))
 

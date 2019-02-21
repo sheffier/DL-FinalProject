@@ -150,7 +150,12 @@ def main_train():
     #     sys.exit(-1)
 
     # Select device
-    device = devices.gpu if args.cuda else devices.cpu
+    #device = devices.gpu if args.cuda else devices.cpu
+    #if not args.disable_cuda and torch.cuda.is_available():
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
 
     # Create optimizer lists
     src2src_optimizers = []
@@ -178,16 +183,18 @@ def main_train():
     with torch.no_grad():
         word_embeddings.weight[:bpemb_en.vs, :] = torch.from_numpy(bpemb_en.vectors)
     word_embedding_size = word_embeddings.weight.data.size()[1]
-    word_embeddings = device(word_embeddings)
+    word_embeddings = word_embeddings.to(device)
     word_embeddings.weight.requires_grad = False
+    print(next(word_embeddings.parameters()).is_cuda)
 
     field_dict: LabelDict = torch.load('./data/processed_data/train/field.dict')
     field_embeddings = nn.Embedding(len(field_dict), bpemb_en.dim // 2, padding_idx=field_dict.pad_index)
     nn.init.normal_(field_embeddings.weight, 0, 0.1)
     nn.init.constant_(field_embeddings.weight[field_dict.pad_index], 0)
     field_embedding_size = field_embeddings.weight.data.size()[1]
-    field_embeddings = device(field_embeddings)
+    field_embeddings = field_embeddings.to(device)
     field_embeddings.weight.requires_grad = True
+    print(next(field_embeddings.parameters()).is_cuda)
 
     # words = field_labels = word_embeddings = field_embeddings = None
     # word_embedding_size = args.word_embedding_size
@@ -243,21 +250,25 @@ def main_train():
     #     src_generator = device(WrappedEmbeddingGenerator(src_embedding_generator, src_embeddings))
     #     trg_generator = device(WrappedEmbeddingGenerator(trg_embedding_generator, trg_embeddings))
     # else:
-    src_generator = device(LinearGenerator(args.hidden, len(word_dict), len(field_dict)))
-    trg_generator = device(LinearGenerator(args.hidden, len(word_dict), len(field_dict)))
+    src_generator = LinearGenerator(args.hidden, len(word_dict), len(field_dict)).to(device)
+    trg_generator = LinearGenerator(args.hidden, len(word_dict), len(field_dict)).to(device)
+    print(next(src_generator.parameters()).is_cuda)
+    print(next(trg_generator.parameters()).is_cuda)
     add_optimizer(src_generator, (src2src_optimizers, trg2src_optimizers))
     add_optimizer(trg_generator, (trg2trg_optimizers, src2trg_optimizers))
 
     # Build encoder
-    encoder = device(RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
+    encoder = RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
                                 hidden_size=args.hidden, bidirectional=not args.disable_bidirectional,
-                                layers=args.layers, dropout=args.dropout))
+                                layers=args.layers, dropout=args.dropout).to(device)
+    print(next(encoder.parameters()).is_cuda)
     add_optimizer(encoder, (src2src_optimizers, trg2trg_optimizers, src2trg_optimizers, trg2src_optimizers))
 
     # Build decoders
-    decoder = device(RNNAttentionDecoder(word_embedding_size=word_embedding_size,
+    decoder = RNNAttentionDecoder(word_embedding_size=word_embedding_size,
                                          field_embedding_size=field_embedding_size, hidden_size=args.hidden,
-                                         layers=args.layers, dropout=args.dropout, input_feeding=False))
+                                         layers=args.layers, dropout=args.dropout, input_feeding=False).to(device)
+    print(next(decoder.parameters()).is_cuda)
     add_optimizer(decoder, (src2src_optimizers, trg2trg_optimizers, src2trg_optimizers, trg2src_optimizers))
 
     # src_decoder = device(RNNAttentionDecoder(word_embedding_size=word_embedding_size, hidden_size=args.hidden, layers=args.layers, dropout=args.dropout))
@@ -541,9 +552,6 @@ class Logger:
                           self.trainer.words_per_second()[0], self.trainer.words_per_second()[1], self.trainer.corpus.epoch))
             print('w_loss {0} f_loss {1}; io_time {2:.2f}s; fw_time {3:.2f}s; bw_time {4:.2f}s'
                   .format(w_loss, f_loss, self.trainer.io_time, self.trainer.forward_time, self.trainer.backward_time))
-            print('  - Training:   {0:10.2f}   ({1:.2f}s: {2:.2f}tok/s src, {3:.2f}tok/s trg; epoch {4})'
-                .format(self.trainer.perplexity_per_word(), self.trainer.total_time(),
-                self.trainer.words_per_second()[0], self.trainer.words_per_second()[1], self.trainer.corpus.epoch))
             self.trainer.reset_stats()
         for id, validator in enumerate(self.validators):
             t = time.time()
