@@ -23,6 +23,10 @@ from torch.autograd import Variable
 from src.config import bpemb_en
 from src.preprocess import LabelDict, BpeWordDict
 
+import logging
+
+logger = logging.getLogger()
+
 
 class Translator:
     def __init__(self, encoder_word_embeddings, decoder_word_embeddings,
@@ -60,8 +64,8 @@ class Translator:
         field_weight[src_field_dict.pad_index] = 0
         self.word_criterion = nn.NLLLoss(word_weight, reduction='sum').to(device)
         self.field_criterion = nn.NLLLoss(field_weight, reduction='sum').to(device)
-        print(self.word_criterion.weight.is_cuda)
-        print(self.field_criterion.weight.is_cuda)
+        logger.debug('word_criterion is running on cuda: %d', self.word_criterion.weight.is_cuda)
+        logger.debug('field_criterion is running on cuda: %d', self.field_criterion.weight.is_cuda)
 
     def _train(self, mode):
         self.encoder_word_embeddings.train(mode)
@@ -126,10 +130,12 @@ class Translator:
         with torch.no_grad():
             var_wordids = torch.LongTensor(word_ids).to(self.device)
             var_fieldids = torch.LongTensor(field_ids).to(self.device)
-            print(var_wordids.is_cuda)
-            print(var_fieldids.is_cuda)
+            logger.debug('enc: word_ids are on cuda: %d', var_wordids.is_cuda)
+            logger.debug('enc: field_ids are on cuda: %d', var_fieldids.is_cuda)
+
         hidden = self.encoder.initial_hidden(len(sentences)).to(self.device)
-        print(hidden.is_cuda)
+        logger.debug('hidden is on cuda: %d', hidden.is_cuda)
+
         hidden, context = self.encoder(word_ids=var_wordids, field_ids=var_fieldids, lengths=lengths,
                                        word_embeddings=self.encoder_word_embeddings,
                                        field_embeddings=self.encoder_field_embeddings, hidden=hidden)
@@ -149,13 +155,15 @@ class Translator:
     def decode(self, sentences, sentences_field, hidden, context, context_mask):
         batch_size = len(sentences)
         initial_output = self.decoder.initial_output(batch_size).to(self.device)
-        print(initial_output.is_cuda)
+        logger.debug('initial_output is on cuda: %d', initial_output.is_cuda)
 
         in_word_ids, in_field_ids, lengths = self.preprocess_ids(sentences, sentences_field, sos=True)
 
         with torch.no_grad():
             in_var_word_ids = torch.LongTensor(in_word_ids).to(self.device)
             in_var_field_ids = torch.LongTensor(in_field_ids).to(self.device)
+            logger.debug('dec: word_ids are on cuda: %d', in_var_word_ids.is_cuda)
+            logger.debug('dec: field_ids are on cuda: %d', in_var_field_ids.is_cuda)
 
         word_logprobs, field_logprobs, hidden, _ = self.decoder(in_var_word_ids, in_var_field_ids, lengths,
                                                                 self.decoder_word_embeddings,
@@ -171,9 +179,12 @@ class Translator:
             assert len(sent) == len(sent_field)
 
         hidden, context, context_lengths = self.encode(sentences, field_sentences, train)
-        print(hidden.is_cuda, context.is_cuda)
+        logger.debug('hidden, context are on cuda: %d, %d', hidden.is_cuda, context.is_cuda)
+
         context_mask = self.mask(context_lengths)
-        print(context_mask.is_cuda)
+        if context_mask is not None:
+            logger.debug('context_mask is on cuda: %d', context_mask.is_cuda)
+
         word_translations = [[] for _ in sentences]
         field_translations = [[] for _ in field_sentences]
         prev_words = len(sentences)*[self.w_sos_id]
@@ -185,18 +196,19 @@ class Translator:
             with torch.no_grad():
                 var_word = torch.LongTensor([prev_words]).to(self.device)
                 var_field = torch.LongTensor([prev_fields]).to(self.device)
-                print(var_word.is_cuda)
-                print(var_field.is_cuda)
+                logger.debug('greedy: word_ids are on cuda: %d', var_word.is_cuda)
+                logger.debug('greedy: field_ids are on cuda: %d', var_field.is_cuda)
 
             word_logprobs, field_logprobs, hidden, output = self.decoder(var_word, var_field, len(sentences)*[1],
                                                                          self.decoder_word_embeddings,
                                                                          self.decoder_field_embeddings, hidden,
                                                                          context, context_mask, output,
                                                                          self.generator)
-            print(word_logprobs.is_cuda)
-            print(field_logprobs.is_cuda)
-            print(hidden.is_cuda)
-            print(output.is_cuda)
+
+            logger.debug('greedy: word_logprobs is on cuda: %d', word_logprobs.is_cuda)
+            logger.debug('greedy: field_logprobs is on cuda: %d', field_logprobs.is_cuda)
+            logger.debug('greedy: hidden are is cuda: %d', hidden.is_cuda)
+            logger.debug('greedy: output are is cuda: %d', output.is_cuda)
 
             prev_words = word_logprobs.max(dim=2)[1].squeeze().data.cpu().numpy().tolist()
             prev_fields = field_logprobs.max(dim=2)[1].squeeze().data.cpu().numpy().tolist()
@@ -299,9 +311,9 @@ class Translator:
         context_mask = self.mask(context_lengths)
         if context_mask is not None:
             context_mask = context_mask.to(self.device)
-            print(hidden.is_cuda, context.is_cuda, context_mask.is_cuda)
+            logger.debug('score: h, c, c_m are on cuda: %d, %d, %d', hidden.is_cuda, context.is_cuda, context_mask.is_cuda)
         else:
-            print(hidden.is_cuda, context.is_cuda)
+            logger.debug('score: h, c are on cuda: %d, %d', hidden.is_cuda, context.is_cuda)
 
         # Decode
         word_logprobs, field_logprobs, hidden = self.decode(trg_word, trg_field, hidden, context,
@@ -313,6 +325,8 @@ class Translator:
         with torch.no_grad():
             out_word_ids_var = torch.LongTensor(out_word_ids).to(self.device)
             out_field_ids_var = torch.LongTensor(out_field_ids).to(self.device)
+            logger.debug('score: word_ids are on cuda: %d', out_word_ids_var.is_cuda)
+            logger.debug('score: field_ids are on cuda: %d', out_field_ids_var.is_cuda)
 
         word_loss = self.word_criterion(word_logprobs.view(-1, word_logprobs.size()[-1]), out_word_ids_var.view(-1))
         field_loss = self.field_criterion(field_logprobs.view(-1, field_logprobs.size()[-1]), out_field_ids_var.view(-1))

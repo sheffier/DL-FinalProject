@@ -26,6 +26,8 @@ import numpy as np
 import sys
 import time
 
+import logging
+
 from src.config import bpemb_en
 
 from torch import nn
@@ -93,6 +95,7 @@ def main_train():
     logging_group.add_argument('--validation_directions', nargs='+', default=['src2src', 'trg2trg', 'src2trg', 'trg2src'], help='validation directions')
     logging_group.add_argument('--validation_output', metavar='PREFIX', help='output validation translations with the given prefix')
     logging_group.add_argument('--validation_beam_size', type=int, default=0, help='use beam search for validation')
+    logging_group.add_argument('--print_level', type=str, default='info', help='logging level [debug | info]')
 
     # Other
     parser.add_argument('--encoding', default='utf-8', help='the character encoding for input/output (defaults to utf-8)')
@@ -100,6 +103,12 @@ def main_train():
 
     # Parse arguments
     args = parser.parse_args()
+
+    logger = logging.getLogger()
+    if args.print_level == 'debug':
+        logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
+    else:
+        logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
     print("Log every %d intervals" % args.log_interval)
     # args = parser.parse_args(['--src_corpus_params', 'table, ./data/processed_data/train/train.box',
@@ -185,7 +194,7 @@ def main_train():
     word_embedding_size = word_embeddings.weight.data.size()[1]
     word_embeddings = word_embeddings.to(device)
     word_embeddings.weight.requires_grad = False
-    print(next(word_embeddings.parameters()).is_cuda)
+    logger.debug('w_embeddings is running on cuda: %d', next(word_embeddings.parameters()).is_cuda)
 
     field_dict: LabelDict = torch.load('./data/processed_data/train/field.dict')
     field_embeddings = nn.Embedding(len(field_dict), bpemb_en.dim // 2, padding_idx=field_dict.pad_index)
@@ -194,7 +203,7 @@ def main_train():
     field_embedding_size = field_embeddings.weight.data.size()[1]
     field_embeddings = field_embeddings.to(device)
     field_embeddings.weight.requires_grad = True
-    print(next(field_embeddings.parameters()).is_cuda)
+    logger.debug('f_embeddings is running on cuda: %d', next(word_embeddings.parameters()).is_cuda)
 
     # words = field_labels = word_embeddings = field_embeddings = None
     # word_embedding_size = args.word_embedding_size
@@ -252,8 +261,8 @@ def main_train():
     # else:
     src_generator = LinearGenerator(args.hidden, len(word_dict), len(field_dict)).to(device)
     trg_generator = LinearGenerator(args.hidden, len(word_dict), len(field_dict)).to(device)
-    print(next(src_generator.parameters()).is_cuda)
-    print(next(trg_generator.parameters()).is_cuda)
+    logger.debug('src generator is running on cuda: %d', next(src_generator.parameters()).is_cuda)
+    logger.debug('trg generator is running on cuda: %d', next(src_generator.parameters()).is_cuda)
     add_optimizer(src_generator, (src2src_optimizers, trg2src_optimizers))
     add_optimizer(trg_generator, (trg2trg_optimizers, src2trg_optimizers))
 
@@ -261,14 +270,15 @@ def main_train():
     encoder = RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
                                 hidden_size=args.hidden, bidirectional=not args.disable_bidirectional,
                                 layers=args.layers, dropout=args.dropout).to(device)
-    print(next(encoder.parameters()).is_cuda)
+    logger.debug('encoder model is running on cuda: %d', next(encoder.parameters()).is_cuda)
     add_optimizer(encoder, (src2src_optimizers, trg2trg_optimizers, src2trg_optimizers, trg2src_optimizers))
 
     # Build decoders
     decoder = RNNAttentionDecoder(word_embedding_size=word_embedding_size,
                                          field_embedding_size=field_embedding_size, hidden_size=args.hidden,
                                          layers=args.layers, dropout=args.dropout, input_feeding=False).to(device)
-    print(next(decoder.parameters()).is_cuda)
+    logger.debug('decoder model is running on cuda: %d', next(decoder.parameters()).is_cuda)
+    logger.debug('attention model is running on cuda: %d', next(decoder.attention.parameters()).is_cuda)
     add_optimizer(decoder, (src2src_optimizers, trg2trg_optimizers, src2trg_optimizers, trg2src_optimizers))
 
     # src_decoder = device(RNNAttentionDecoder(word_embedding_size=word_embedding_size, hidden_size=args.hidden, layers=args.layers, dropout=args.dropout))
@@ -398,8 +408,6 @@ def main_train():
     loggers.append(Logger('Target to target', trg2trg_trainer, [], None, args.encoding))
     loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding))
     loggers.append(Logger('Target to source', trg2src_trainer, [], None, args.encoding))
-
-
 
     # loggers = []
     # src2src_output = trg2trg_output = src2trg_output = trg2src_output = None
