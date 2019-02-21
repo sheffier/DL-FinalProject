@@ -52,7 +52,7 @@ class GlobalAttention(nn.Module):
 
         # Mask alignment scores
         if mask is not None:
-            logger.debug('attention: mask is on cuda: %d', mask.is_cuda)
+            logger.info('attention: mask is on cuda: %d', mask.is_cuda)
             align.data.masked_fill_(mask, -float('inf'))
 
         # Compute attention from alignment scores
