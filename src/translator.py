@@ -325,7 +325,7 @@ class Translator:
     #                     word_translation_scores[sentence_index] = word_hypotheses[sentence_index][0]
     #     return self.trg_word_dict.ids2sentences(word_translations)
 
-    def score(self, src_word, trg_word, src_field, trg_field, train=False):
+    def score(self, src_word, trg_word, src_field, trg_field, curr_iter, print_every=1, train=False):
         self._train(train)
 
         # Check batch sizes
@@ -353,6 +353,17 @@ class Translator:
             out_field_ids_var = torch.LongTensor(out_field_ids).to(self.device)
             logger.debug('score: word_ids are on cuda: %d', out_word_ids_var.is_cuda)
             logger.debug('score: field_ids are on cuda: %d', out_field_ids_var.is_cuda)
+
+        if curr_iter % print_every == 0:
+            test_exp_sent = out_word_ids_var.t()[0]
+            test_exp_field = out_field_ids_var.t()[0]
+            test_res_sent = word_logprobs.max(dim=2)[1].t()[0]
+            test_res_field = field_logprobs.max(dim=2)[1].t()[0]
+            print(bpemb_en.decode_ids(test_exp_sent))
+            print(bpemb_en.decode_ids(test_exp_field))
+            print(bpemb_en.decode_ids(test_res_sent))
+            print(bpemb_en.decode_ids(test_res_field))
+
 
         word_loss = self.word_criterion(word_logprobs.view(-1, word_logprobs.size()[-1]), out_word_ids_var.view(-1))
         field_loss = self.field_criterion(field_logprobs.view(-1, field_logprobs.size()[-1]), out_field_ids_var.view(-1))

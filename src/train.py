@@ -431,20 +431,20 @@ def main_train():
         torch.save(trg2src_translator, '{0}.{1}.trg2src.pth'.format(args.save, name))
 
     # Training
-    for step in range(1, args.iterations + 1):
+    for curr_iter in range(1, args.iterations + 1):
         for trainer in trainers:
-            trainer.step()
+            trainer.step(curr_iter, args.log_interval)
 
-        if args.save is not None and args.save_interval > 0 and step % args.save_interval == 0:
-            save_models('it{0}'.format(step))
+        if args.save is not None and args.save_interval > 0 and curr_iter % args.save_interval == 0:
+            save_models('it{0}'.format(curr_iter))
 
-        if step % args.log_interval == 0:
+        if curr_iter % args.log_interval == 0:
             print()
-            print('STEP {0} x {1}'.format(step, args.batch))
+            print('STEP {0} x {1}'.format(curr_iter, args.batch))
             for logger in loggers:
-                logger.log(step)
+                logger.log(curr_iter)
 
-        step += 1
+        # step += 1
 
     save_models('final')
 
@@ -457,7 +457,7 @@ class Trainer:
         self.batch_size = batch_size
         self.reset_stats()
 
-    def step(self):
+    def step(self, curr_iter, print_every=1):
         # Reset gradients
         for optimizer in self.optimizers:
             optimizer.zero_grad()
@@ -471,7 +471,8 @@ class Trainer:
 
         # Compute loss
         t = time.time()
-        word_loss, field_loss = self.translator.score(src_word, trg_word, src_field, trg_field, train=True)
+        word_loss, field_loss = self.translator.score(src_word, trg_word, src_field, trg_field, curr_iter,
+                                                      print_every=print_every, train=True)
         total_loss = word_loss + field_loss
         self.word_loss += word_loss.item()
         self.field_loss += field_loss.item()
