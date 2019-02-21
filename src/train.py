@@ -107,8 +107,12 @@ def main_train():
     logger = logging.getLogger()
     if args.print_level == 'debug':
         logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
-    else:
+    elif args.print_level == 'info':
         logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+    elif args.print_level == 'warning':
+        logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
+    else:
+        logging.basicConfig(stream=sys.stderr, level=logging.CRITICAL)
 
     print("Log every %d intervals" % args.log_interval)
     # args = parser.parse_args(['--src_corpus_params', 'table, ./data/processed_data/train/train.box',
