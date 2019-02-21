@@ -29,10 +29,11 @@ logger = logging.getLogger()
 
 
 class Translator:
-    def __init__(self, encoder_word_embeddings, decoder_word_embeddings,
+    def __init__(self, name, encoder_word_embeddings, decoder_word_embeddings,
                  encoder_field_embeddings, decoder_field_embeddings, generator, src_word_dict,
                  trg_word_dict, src_field_dict, trg_field_dict, src_type, trg_type, encoder, decoder, w_sos_id,
                  denoising=True, device='cpu'):
+        self.name = name
         self.encoder_word_embeddings = encoder_word_embeddings
         self.decoder_word_embeddings = decoder_word_embeddings
         self.encoder_field_embeddings = encoder_field_embeddings
@@ -356,13 +357,17 @@ class Translator:
 
         if curr_iter % print_every == 0:
             test_exp_sent = out_word_ids_var.t()[0]
-            test_exp_field = out_field_ids_var.t()[0]
+            test_exp_field = out_field_ids_var.t()[0].data.cpu().numpy().tolist()
             test_res_sent = word_logprobs.max(dim=2)[1].t()[0]
-            test_res_field = field_logprobs.max(dim=2)[1].t()[0]
-            print(bpemb_en.decode_ids(test_exp_sent))
-            print(bpemb_en.decode_ids(test_exp_field))
-            print(bpemb_en.decode_ids(test_res_sent))
-            print(bpemb_en.decode_ids(test_res_field))
+            test_res_field = field_logprobs.max(dim=2)[1].t()[0].data.cpu().numpy().tolist()
+            exp_sent_name = "[" + self.name + ":" + "ORG|CONTENT" + "] "
+            exp_field_name = "[" + self.name + ":" + "ORG|LABELS" + "] "
+            res_sent_name = "[" + self.name + ":" + "RES|CONTENT" + "] "
+            res_field_name = "[" + self.name + ":" + "RES|LABELS" + "] "
+            print(exp_sent_name + bpemb_en.decode_ids(test_exp_sent))
+            print(exp_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_exp_field]))
+            print(res_sent_name + bpemb_en.decode_ids(test_res_sent))
+            print(res_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_res_field]))
 
 
         word_loss = self.word_criterion(word_logprobs.view(-1, word_logprobs.size()[-1]), out_word_ids_var.view(-1))

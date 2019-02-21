@@ -287,7 +287,8 @@ def main_train():
     # add_optimizer(trg_decoder, (trg2trg_optimizers, src2trg_optimizers))
 
     # Build translators
-    src2src_translator = Translator(encoder_word_embeddings=src_encoder_word_embeddings,
+    src2src_translator = Translator("src2src",
+                                    encoder_word_embeddings=src_encoder_word_embeddings,
                                     decoder_word_embeddings=src_decoder_word_embeddings,
                                     encoder_field_embeddings=src_encoder_field_embeddings,
                                     decoder_field_embeddings=src_decoder_field_embeddings,
@@ -297,7 +298,8 @@ def main_train():
                                     src_type=src_type, trg_type=src_type,
                                     encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[src_type],
                                     denoising=not args.disable_denoising, device=device)
-    src2trg_translator = Translator(encoder_word_embeddings=src_encoder_word_embeddings,
+    src2trg_translator = Translator("src2trg",
+                                    encoder_word_embeddings=src_encoder_word_embeddings,
                                     decoder_word_embeddings=trg_decoder_word_embeddings,
                                     encoder_field_embeddings=src_encoder_field_embeddings,
                                     decoder_field_embeddings=trg_decoder_field_embeddings,
@@ -307,7 +309,8 @@ def main_train():
                                     src_type=src_type, trg_type=trg_type,
                                     encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[trg_type],
                                     denoising=not args.disable_denoising, device=device)
-    trg2trg_translator = Translator(encoder_word_embeddings=trg_encoder_word_embeddings,
+    trg2trg_translator = Translator("trg2trg",
+                                    encoder_word_embeddings=trg_encoder_word_embeddings,
                                     decoder_word_embeddings=trg_decoder_word_embeddings,
                                     encoder_field_embeddings=trg_encoder_field_embeddings,
                                     decoder_field_embeddings=trg_decoder_field_embeddings,
@@ -317,7 +320,8 @@ def main_train():
                                     src_type=trg_type, trg_type=trg_type,
                                     encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[trg_type],
                                     denoising=not args.disable_denoising, device=device)
-    trg2src_translator = Translator(encoder_word_embeddings=trg_encoder_word_embeddings,
+    trg2src_translator = Translator("trg2src",
+                                    encoder_word_embeddings=trg_encoder_word_embeddings,
                                     decoder_word_embeddings=src_decoder_word_embeddings,
                                     encoder_field_embeddings=trg_encoder_field_embeddings,
                                     decoder_field_embeddings=src_decoder_field_embeddings,
