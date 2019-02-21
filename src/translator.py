@@ -113,17 +113,6 @@ class Translator:
 
         return sents, sents_field
 
-    def pad_and_trans_ids(self, sents, sents_field, max_length):
-        # Padding
-        sents = [s + [self.w_pad_id]*(max_length-len(s)) for s in sents]
-        sents_field = [s + [self.f_pad_id] * (max_length - len(s)) for s in sents_field]
-
-        # batch*len -> len*batch
-        sents = [[sents[i][j] for i in range(len(sents))] for j in range(max_length)]
-        sents_field = [[sents_field[i][j] for i in range(len(sents_field))] for j in range(max_length)]
-
-        return sents, sents_field
-
     def preprocess_ids(self, sentences, sentences_field, eos=False, sos=False):
         word_ids, field_ids, lengths = self.add_control_sym(sentences, sentences_field, eos, sos)
         max_length = max(lengths)
