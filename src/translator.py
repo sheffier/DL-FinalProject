@@ -199,6 +199,7 @@ class Translator:
 
         context_mask = self.mask(context_lengths)
         if context_mask is not None:
+            context_mask = context_mask.to(self.device)
             logger.debug('context_mask is on cuda: %d', context_mask.is_cuda)
 
         word_translations = [[] for _ in sentences]
