@@ -15,7 +15,7 @@
 
 import src.train
 
-from src.preprocess import LabelDict
+from src.data import LabelDict
 
 if __name__ == '__main__':
     src.train.main_train()

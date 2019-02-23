@@ -13,23 +13,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from src import devices
-from src.encoder import RNNEncoder
-from src.decoder import RNNAttentionDecoder
-from src.generator import *
-from src.translator import Translator
-
-from src.preprocess import BpeWordDict, LabelDict
-
 import argparse
 import numpy as np
 import sys
 import time
-
 import logging
+import torch
 
-from src.config import bpemb_en
-
+import src.data as data
+from src.encoder import RNNEncoder
+from src.decoder import RNNAttentionDecoder
+from src.generator import *
+from src.translator import Translator
+from src.data import BpeWordDict, LabelDict
+from src.data import bpemb_en
 from torch import nn
 
 
@@ -115,16 +112,6 @@ def main_train():
         logging.basicConfig(stream=sys.stderr, level=logging.CRITICAL)
 
     print("Log every %d intervals" % args.log_interval)
-    # args = parser.parse_args(['--src_corpus_params', 'table, ./data/processed_data/train/train.box',
-    #                           '--trg_corpus_params', 'text, ./data/processed_data/train/train.article',
-    #                           '--log_interval', '10'])  # ,
-    #                           # '--word_embeddings', '',
-    #                           # '--field_vocabulary', '',
-    #                           # '--fixed_decoder_embeddings',
-    #                           # '--fixed_generator',
-    #                           # '--batch', '2',
-    #                           # '--cache', '100'])
-
 
     # Validate arguments
     if args.src_corpus_params is None or args.trg_corpus_params is None:
@@ -163,8 +150,6 @@ def main_train():
     #     sys.exit(-1)
 
     # Select device
-    #device = devices.gpu if args.cuda else devices.cpu
-    #if not args.disable_cuda and torch.cuda.is_available():
     if torch.cuda.is_available():
         device = torch.device('cuda')
     else:
@@ -187,7 +172,7 @@ def main_train():
         return optimizer
 
     # Load embedding and/or vocab
-    word_dict = BpeWordDict.read_vocab(bpemb_en.words)
+    word_dict = BpeWordDict.get(vocab=set(bpemb_en.words))
     w_sos_id = {'text': word_dict.bos_index, 'table': word_dict.sot_index}
 
     word_embeddings = nn.Embedding(len(word_dict), bpemb_en.dim, padding_idx=word_dict.pad_index)

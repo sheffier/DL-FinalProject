@@ -13,13 +13,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from src import data
-
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 
-from src.config import bpemb_en
+from src.data import bpemb_en
 
 
 class RNNEncoder(nn.Module):
@@ -64,4 +61,7 @@ class RNNEncoder(nn.Module):
         return hidden, output
 
     def initial_hidden(self, batch_size):
-        return Variable(torch.zeros(self.layers*self.directions, batch_size, self.hidden_size), requires_grad=False)
+        with torch.no_grad():
+            init_hidden = torch.zeros(self.layers*self.directions, batch_size, self.hidden_size)
+
+        return init_hidden

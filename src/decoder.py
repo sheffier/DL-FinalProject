@@ -13,14 +13,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from src import data
-from src.attention import GlobalAttention
-
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 
-from src.config import bpemb_en
+from src.data import bpemb_en
+from src.attention import GlobalAttention
 
 
 class RNNAttentionDecoder(nn.Module):
@@ -61,7 +58,10 @@ class RNNAttentionDecoder(nn.Module):
         return torch.stack(word_scores), torch.stack(field_scores), hidden, output
 
     def initial_output(self, batch_size):
-        return Variable(torch.zeros(batch_size, self.hidden_size), requires_grad=False)
+        with torch.no_grad():
+            init_output = torch.zeros(batch_size, self.hidden_size)
+
+        return init_output
 
 
 # Based on OpenNMT-py

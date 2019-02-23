@@ -13,13 +13,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from src import data
-
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from src.config import bpemb_en
+from src.data import bpemb_en
 
 
 class EmbeddingGenerator(nn.Module):
@@ -53,7 +49,8 @@ class WrappedEmbeddingGenerator(nn.Module):
         return self.embedding_generator(hidden, self.embeddings)
 
     def output_classes(self):
-        return self.embeddings.weight.data.size()[0] + data.SPECIAL_SYMBOLS - 1
+        pass
+        # return self.embeddings.weight.data.size()[0] + data.SPECIAL_SYMBOLS - 1
 
 
 class LinearGenerator(nn.Module):

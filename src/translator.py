@@ -13,17 +13,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from src import data, devices
-
 import random
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
-
-from src.config import bpemb_en
-from src.preprocess import LabelDict, BpeWordDict
-
 import logging
+
+from src.data import bpemb_en
+from src.data import LabelDict, BpeWordDict
+
 
 logger = logging.getLogger()
 
@@ -358,7 +355,6 @@ class Translator:
             print(exp_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_exp_field]))
             print(res_sent_name + bpemb_en.decode_ids(test_res_sent))
             print(res_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_res_field]))
-
 
         word_loss = self.word_criterion(word_logprobs.view(-1, word_logprobs.size()[-1]), out_word_ids_var.view(-1))
         field_loss = self.field_criterion(field_logprobs.view(-1, field_logprobs.size()[-1]), out_field_ids_var.view(-1))

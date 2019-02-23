@@ -13,57 +13,238 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import collections
-import numpy as np
+import re
+import os
 import torch
-import torch.nn as nn
-
-from src.config import bpemb_en
-
-
-SPECIAL_SYMBOLS = 4
-PAD, OOV, SOS, EOS = 0, 1, 2, 3
-FIELD_SPECIAL_SYMBOLS = 6
-FIELD_PAD, FIELD_OOV, FIELD_TABLE_SOS, FIELD_TEXT_SOS, FIELD_TABLE_EOS, FIELD_TEXT_EOS = 0, 1, 2, 3, 4, 5
+import numpy as np
+import collections
+from bpemb import BPEmb
+from contextlib import ExitStack
+from typing import List, Dict, Set
 
 
-class Dictionary:
-    def __init__(self, words):
-        self.id2word = [None] + words
-        self.word2id = {word: 1 + i for i, word in enumerate(words)}
+FIELD_PAD, FIELD_UNK, FIELD_NULL = '<PAD>', '<UNK>', '<NULL>'
+SPECIAL_FIELD_SYMS = 3
 
-    def sentence2ids(self, sentence, eos=False, sos=False):
-        tokens = tokenize(sentence)
-        ids = [SPECIAL_SYMBOLS + self.word2id[word] - 1 if word in self.word2id else OOV for word in tokens]
-        if eos:
-            ids = ids + [EOS]
-        if sos:
-            ids = [SOS] + ids
-        return ids
+BPE_UNK, BPE_BOS, BPE_EOS, WORD_PAD, WORD_SOT = '<unk>', '<s>', '</s>', '<pad>', '<sot>'
+SPECIAL_WORD_SYMS = 5
 
-    def sentences2ids(self, sentences, eos=False, sos=False):
-        ids = [self.sentence2ids(sentence, eos=eos, sos=sos) for sentence in sentences]
-        lengths = [len(s) for s in ids]
-        ids = [s + [PAD]*(max(lengths)-len(s)) for s in ids]  # Padding
-        ids = [[ids[i][j] for i in range(len(ids))] for j in range(max(lengths))]  # batch*len -> len*batch
-        return ids, lengths
-
-    def ids2sentence(self, ids):
-        return ' '.join(['<OOV>' if i == OOV else self.id2word[i - SPECIAL_SYMBOLS + 1] for i in ids if i != EOS and i != PAD and i != SOS])
-
-    def ids2sentences(self, ids):
-        return [self.ids2sentence(i) for i in ids]
-
-    def size(self):
-        return len(self.id2word) - 1
+bpemb_en = BPEmb(lang="en")
 
 
-def special_ids(ids):
-    return ids * (ids < SPECIAL_SYMBOLS).long()
+class Dictionary(object):
+    def __init__(self, word2id: Dict, id2word: Dict):
+        self.word2id = word2id
+        self.id2word = id2word
+
+    @staticmethod
+    def _vocab2dict(vocab: Set):
+        pass
+
+    def __len__(self):
+        """Returns the number of words in the dictionary"""
+        return len(self.id2word)
+
+    @classmethod
+    def get(cls, vocab=None, dict_binpath=None):
+        if dict_binpath is not None and os.path.isfile(dict_binpath):
+            print("Loading dictionary from %s ..." % dict_binpath)
+            dictionary = torch.load(dict_binpath)
+            print("Done")
+        elif vocab is not None:
+            assert isinstance(vocab, (str, set))
+
+            if isinstance(vocab, str):
+                assert os.path.isfile(vocab)
+
+                print("Loading vocabulary from %s ..." % vocab)
+                vocab = torch.load(vocab)
+
+            print("Converting vocabulary to dictionary")
+            dictionary = cls._vocab2dict(vocab)
+            if dict_binpath is not None:
+                print("Saving to file..")
+                torch.save(dictionary, dict_binpath)
+        else:
+            raise Exception('Both vocab and dict_binpath are None')
+
+        return dictionary
 
 
-def word_ids(ids):
-    return (ids - SPECIAL_SYMBOLS + 1) * (ids >= SPECIAL_SYMBOLS).long()
+class LabelDict(Dictionary):
+    def __init__(self, name: str, word2id: Dict, id2word: Dict):
+        super().__init__(word2id, id2word)
+        self.name = name
+        self.pad_index = self.word2id[FIELD_PAD]
+        self.unk_index = self.word2id[FIELD_UNK]
+        self.null_index = self.word2id[FIELD_NULL]
+
+    @staticmethod
+    def _vocab2dict(vocab: Set):
+        word2id = {FIELD_PAD: 0, FIELD_UNK: 1, FIELD_NULL: 2}
+
+        for idx, label in enumerate(vocab):
+            assert label != FIELD_PAD and label != FIELD_UNK and label != FIELD_NULL
+            word2id[label] = SPECIAL_FIELD_SYMS + idx
+
+        id2word = {v: k for k, v in word2id.items()}
+
+        return LabelDict("Field", word2id, id2word)
+
+
+class BpeWordDict(Dictionary):
+    def __init__(self, name: str, word2id: Dict, id2word: Dict):
+        super().__init__(word2id, id2word)
+        self.name = name
+        self.unk_index = self.word2id[BPE_UNK]
+        self.bos_index = self.word2id[BPE_BOS]
+        self.eos_index = self.word2id[BPE_EOS]
+        self.pad_index = self.word2id[WORD_PAD]
+        self.sot_index = self.word2id[WORD_SOT]
+
+    @staticmethod
+    def _vocab2dict(vocab: Set):
+        word2id = {}
+        for idx, word in enumerate(vocab):
+            word2id[word] = idx
+
+        word2id[WORD_PAD] = len(word2id)
+        word2id[WORD_SOT] = len(word2id)
+        id2word = {v: k for k, v in word2id.items()}
+
+        return BpeWordDict("Bpe words", word2id, id2word)
+
+
+class Article(object):
+    def __init__(self):
+        self.sentences = []
+
+    @staticmethod
+    def norm_sentence(sentence):
+        return sentence.lower()
+
+    @staticmethod
+    def validate_sentence(sentence):
+        match = re.search(r"[A-Z]+", sentence)
+        assert match is None
+
+    def add_sentence(self, sentence):
+        # norm_sent = self.norm_sentence(sentence)
+        self.validate_sentence(sentence)
+        self.sentences.append(sentence.split())
+
+    def sentence_serialize(self):
+        pass
+
+
+class BoxRecord(object):
+    def __init__(self, label: str):
+        self.field_label = label
+        self.content = []
+
+    @staticmethod
+    def validate_word(word: str):
+        match = re.search(r"[A-Z]+", word)
+        assert match is None
+
+    @staticmethod
+    def norm_word(word: str):
+        return word.lower()
+
+    def add_word(self, word: str):
+        self.validate_word(word)
+        self.content.append(word)
+
+
+class Infobox(object):
+    def __init__(self):
+        self.records: List[BoxRecord] = []
+
+    def add_record(self, record: BoxRecord):
+        self.records.append(record)
+
+    def serialize(self):
+        pass
+
+
+class ArticleRawDataset(object):
+    def __init__(self, label_dict: LabelDict):
+        self.articles: List[Article] = []
+        self.label_dict = label_dict
+
+    def add_article(self, article: Article):
+        self.articles.append(article)
+
+    def dump(self, dump_path, bpe: BPEmb, max_sents=1, shuffle=0):
+        with ExitStack() as stack:
+            article_content_file = stack.enter_context(open(dump_path + '.content', "w", encoding='utf-8'))
+            article_label_file = stack.enter_context(open(dump_path + '.labels', "w", encoding='utf-8'))
+
+            if shuffle:
+                indices = (ind for ind in np.random.RandomState(seed=shuffle).permutation(len(self.articles)))
+                print("Write dataset to file (shuffled)")
+            else:
+                indices = range(len(self.articles))
+                print("Write dataset to file (no shuffling)")
+
+            for ind in indices:
+                article = self.articles[ind]
+                sent_cnt = min(max_sents, len(article.sentences))
+
+                flat_sents = [word for sentence in article.sentences[:sent_cnt] for word in sentence]
+                sent_bpe_ids = [str(bpe_id) for bpe_id in bpe.encode_ids(" ".join(flat_sents))]
+                label_ids = [str(self.label_dict.null_index)] * len(sent_bpe_ids)
+
+                article_content_file.write(" ".join(sent_bpe_ids) + '\n')
+                article_label_file.write(" ".join(label_ids) + '\n')
+
+
+class InfoboxRawDataset(object):
+    def __init__(self, label_dict: LabelDict):
+        self.infoboxes: List[Infobox] = []
+        self.label_dict = label_dict
+
+    def add_infobox(self, infobox: Infobox):
+        self.infoboxes.append(infobox)
+
+    def dump(self, dump_path, bpe: BPEmb, shuffle=0):
+        with ExitStack() as stack:
+            boxes_content_file = stack.enter_context(open(dump_path + '.content', "w", encoding='utf-8'))
+            boxes_label_file = stack.enter_context(open(dump_path + '.labels', "w", encoding='utf-8'))
+            boxes_positions_file = stack.enter_context(open(dump_path + '.pos', "w", encoding='utf-8'))
+
+            if shuffle:
+                indices = (ind for ind in np.random.RandomState(seed=shuffle).permutation(len(self.infoboxes)))
+                print("Write dataset to file (shuffled)")
+            else:
+                indices = range(len(self.infoboxes))
+                print("Write dataset to file (no shuffling)")
+
+            for ind in indices:
+                infobox = self.infoboxes[ind]
+                box_content = []
+                box_labels = []
+                box_positions = []
+                for record in infobox.records:
+                    rec_content = " ".join(record.content)
+                    rec_bpe_ids = [str(bpe_id) for bpe_id in bpe.encode_ids(rec_content)]
+                    num_tokens = len(rec_bpe_ids)
+                    if record.field_label in self.label_dict.word2id:
+                        rec_label_id = self.label_dict.word2id[record.field_label]
+                    else:
+                        print("Unknown field label %s" % record.field_label)
+                        rec_label_id = self.label_dict.unk_index
+
+                    label_ids = [str(rec_label_id)] * num_tokens
+                    positions = [str(num + 1) for num in range(num_tokens)]
+
+                    box_content.extend(rec_bpe_ids)
+                    box_labels.extend(label_ids)
+                    box_positions.extend(positions)
+
+                boxes_content_file.write(" ".join(box_content) + '\n')
+                boxes_label_file.write(" ".join(box_labels) + '\n')
+                boxes_positions_file.write(" ".join(box_positions) + '\n')
 
 
 class CorpusReader:
@@ -137,7 +318,8 @@ class CorpusReader:
         self.pending.remove(index)
         self.length2pending[length].remove(index)
 
-    def _score_length(self, src, trg, src_min, src_max, trg_min, trg_max):
+    @staticmethod
+    def _score_length(src, trg, src_min, src_max, trg_min, trg_max):
         return max(abs(src - src_min),
                    abs(src - src_max),
                    abs(trg - trg_min),
@@ -197,31 +379,6 @@ class BacktranslatorCorpusReader:
         src_word, src_field = self.translator.greedy(trg_word, trg_field, train=False)
         self.epoch = self.corpus.epoch
         return src_word, trg_word, src_field, trg_field
-
-
-def read_embeddings(file, threshold=0, vocabulary=None):
-    header = file.readline().split(' ')
-    count = int(header[0]) if threshold <= 0 else min(threshold, int(header[0]))
-    dim = int(header[1])
-    words = []
-    matrix = np.empty((count+1, dim)) if vocabulary is None else [np.zeros(dim)]
-    for i in range(count):
-        word, vec = file.readline().split(' ', 1)
-        if vocabulary is None:
-            words.append(word)
-            matrix[i+1] = np.fromstring(vec, sep=' ')
-        elif word in vocabulary:
-            words.append(word)
-            matrix.append(np.fromstring(vec, sep=' '))
-    if vocabulary is not None:
-        matrix = np.array(matrix)
-    embeddings = nn.Embedding(matrix.shape[0], dim, padding_idx=0)
-    embeddings.weight.data.copy_(torch.from_numpy(matrix))
-    return embeddings, Dictionary(words)
-
-
-def random_embeddings(vocabulary_size, embedding_size):
-    return nn.Embedding(vocabulary_size + 1, embedding_size)
 
 
 def tokenize(sentence):
