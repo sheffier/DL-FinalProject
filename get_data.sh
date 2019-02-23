@@ -6,5 +6,6 @@ cd wikipedia-biography-dataset/
 cat wikipedia-biography-dataset.z?? > tmp.zip
 unzip tmp.zip
 rm tmp.zip
-mv wikipedia-biography-dataset data/original_data
+mv wikipedia-biography-dataset ../data/original_data
+cd ..
 rm -rf wikipedia-biography-dataset
