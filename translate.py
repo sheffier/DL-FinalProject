@@ -83,7 +83,7 @@ def main():
                     fout_labels.write(f_str_trans + '\n')
                     print(w_str_trans.encode('utf-8'))
                     print(ref_str.encode('utf-8'))
-                    print('BLEU-4: %f' % 100 * sentence_bleu([ref_str.split()], w_str_trans.split()))
+                    print('BLEU-4: %f' % (100 * sentence_bleu([ref_str.split()], w_str_trans.split())))
             elif len(content_batch) > 0:
                 pass
                 # for translation in translator.beam_search(batch, train=False, beam_size=args.beam_size):
