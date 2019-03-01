@@ -57,12 +57,14 @@ def main():
             while len(content_batch) < args.batch_size and not end:
                 content = fin_content.readline()
                 labels = fin_labels.readline()
+                content_ids = [int(idstr) for idstr in content.strip().split()]
+                labels_ids = [int(idstr) for idstr in labels.strip().split()]
 
                 if not content:
                     end = True
                 else:
-                    content_batch.append(content.strip().split())
-                    labels_batch.append(labels.strip().split())
+                    content_batch.append(content_ids)
+                    labels_batch.append(labels_ids)
             if args.beam_size <= 0 and len(content_batch) > 0:
                 for w_translation, f_translation in zip(translator.greedy(content_batch, labels_batch, train=False)):
                     w_str_trans = bpemb_en.decode_ids(w_translation)
