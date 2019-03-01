@@ -72,6 +72,8 @@ def main():
     # fin = open(args.input, encoding=args.encoding, errors='surrogateescape')
     # fout = open(args.output, mode='w', encoding=args.encoding, errors='surrogateescape')
 
+    print("Start evaluation...")
+
     while not end:
         with ExitStack() as stack:
             fin_content = stack.enter_context(open(args.input + '.content', encoding=args.encoding, errors='surrogateescape'))
@@ -84,6 +86,9 @@ def main():
             labels_batch = []
             ref_batch = []
             avg_bleu = 0
+            bytes_read = 0
+            total_bytes = os.path.getsize(args.input + '.content')
+            target_bytes = 0
             while len(content_batch) < args.batch_size and not end:
                 content = fin_content.readline()
                 labels = fin_labels.readline()
@@ -91,6 +96,10 @@ def main():
                 content_ids = [int(idstr) for idstr in content.strip().split()]
                 labels_ids = [int(idstr) for idstr in labels.strip().split()]
                 ref_ids = [int(idstr) for idstr in ref.strip().split()]
+
+                if bytes_read >= target_bytes:
+                    print("progress %.3f" % (100.0 * (bytes_read / total_bytes)))
+                    target_bytes += total_bytes // 20
 
                 if not content:
                     end = True
@@ -108,7 +117,7 @@ def main():
                     # print(w_str_trans.encode('utf-8'))
                     # print(ref_str.encode('utf-8'))
                     # print('BLEU-4: %f' % (100 * sentence_bleu([ref_str.split()], w_str_trans.split())))
-                    avg_bleu += (100.0 * sentence_bleu([ref_str.split()], w_str_trans.split()))
+                    # avg_bleu += (100.0 * sentence_bleu([ref_str.split()], w_str_trans.split()))
                 # avg_bleu /= len(content_batch)
                 # print("avg_bleu %f" % avg_bleu)
 
