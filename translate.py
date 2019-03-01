@@ -101,6 +101,8 @@ def main():
                     print("progress %.3f" % (100.0 * (bytes_read / total_bytes)))
                     target_bytes += total_bytes // 20
 
+                bytes_read += len(content)
+
                 if not content:
                     end = True
                 else:
