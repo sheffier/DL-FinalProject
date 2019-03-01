@@ -61,10 +61,10 @@ def main():
                 if not content:
                     end = True
                 else:
-                    content_batch.append(content)
-                    labels_batch.append(labels)
+                    content_batch.append(content.strip().split())
+                    labels_batch.append(labels.strip().split())
             if args.beam_size <= 0 and len(content_batch) > 0:
-                for w_translation, f_translation in translator.greedy(content_batch, labels_batch, train=False):
+                for w_translation, f_translation in zip(translator.greedy(content_batch, labels_batch, train=False)):
                     w_str_trans = bpemb_en.decode_ids(w_translation)
                     f_str_trans = " ".join([translator.trg_field_dict.id2word[idx] for idx in f_translation])
                     fout_content.write(w_str_trans + '\n')
