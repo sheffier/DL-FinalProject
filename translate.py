@@ -54,7 +54,7 @@ def main():
 
             content_batch = []
             labels_batch = []
-            while len(batch) < args.batch_size and not end:
+            while len(content_batch) < args.batch_size and not end:
                 content = fin_content.readline()
                 labels = fin_labels.readline()
 
