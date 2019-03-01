@@ -44,6 +44,8 @@ def main_train():
     corpora_group.add_argument('--trg_corpus_params', type=str, default='text, ./data/processed_data/train/train.article',
                                help='the target unaligned corpus (type,path). Type = text/table')
     # Maybe add src/target type (i.e. text/table)
+    corpora_group.add_argument('--corpus_mode', type=str, default='mono',
+                               help='training mode: "mono" (unsupervised) / "para" (supervised)')
 
     corpora_group.add_argument('--max_sentence_length', type=int, default=50, help='the maximum sentence length for training (defaults to 50)')
     corpora_group.add_argument('--cache', type=int, default=100000, help='the cache size (in sentences) for corpus reading (defaults to 1000000)')
@@ -325,34 +327,47 @@ def main_train():
     trainers = []
     src2src_trainer = trg2trg_trainer = src2trg_trainer = trg2src_trainer = None
     srcback2trg_trainer = trgback2src_trainer = None
-    if args.src_corpus_params is not None:
-        f_content = open(src_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
-        f_labels = open(src_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
-        corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
-                                   cache_size=args.cache)
-        src2src_trainer = Trainer(translator=src2src_translator, optimizers=src2src_optimizers, corpus=corpus,
+
+    if args.corpus_mode == 'mono':
+        if args.src_corpus_params is not None:
+            f_content = open(src_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
+            f_labels = open(src_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
+            corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
+                                       cache_size=args.cache)
+            src2src_trainer = Trainer(translator=src2src_translator, optimizers=src2src_optimizers, corpus=corpus,
+                                      batch_size=args.batch)
+            trainers.append(src2src_trainer)
+            if not args.disable_backtranslation:
+                trgback2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers,
+                                              corpus=data.BacktranslatorCorpusReader(corpus=corpus,
+                                                                                     translator=src2trg_translator),
+                                              batch_size=args.batch)
+                trainers.append(trgback2src_trainer)
+        if args.trg_corpus_params is not None:
+            f_content = open(trg_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
+            f_labels = open(trg_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
+            corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
+                                       cache_size=args.cache)
+            trg2trg_trainer = Trainer(translator=trg2trg_translator, optimizers=trg2trg_optimizers, corpus=corpus,
+                                      batch_size=args.batch)
+            trainers.append(trg2trg_trainer)
+            if not args.disable_backtranslation:
+                srcback2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers,
+                                              corpus=data.BacktranslatorCorpusReader(corpus=corpus,
+                                                                                     translator=trg2src_translator),
+                                              batch_size=args.batch)
+                trainers.append(srcback2trg_trainer)
+    elif args.corpus_mode == 'para':
+        fsrc_content = open(src_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
+        fsrc_labels = open(src_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
+        ftrg_content = open(trg_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
+        ftrg_labels = open(trg_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
+        corpus = data.CorpusReader(fsrc_content, fsrc_labels, trg_word_file=ftrg_content, trg_field_file=ftrg_labels,
+                                   max_sentence_length=args.max_sentence_length,
+                                   cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
+        src2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers, corpus=corpus,
                                   batch_size=args.batch)
-        trainers.append(src2src_trainer)
-        if not args.disable_backtranslation:
-            trgback2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers,
-                                          corpus=data.BacktranslatorCorpusReader(corpus=corpus,
-                                                                                 translator=src2trg_translator),
-                                          batch_size=args.batch)
-            trainers.append(trgback2src_trainer)
-    if args.trg_corpus_params is not None:
-        f_content = open(trg_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
-        f_labels = open(trg_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
-        corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
-                                   cache_size=args.cache)
-        trg2trg_trainer = Trainer(translator=trg2trg_translator, optimizers=trg2trg_optimizers, corpus=corpus,
-                                  batch_size=args.batch)
-        trainers.append(trg2trg_trainer)
-        if not args.disable_backtranslation:
-            srcback2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers,
-                                          corpus=data.BacktranslatorCorpusReader(corpus=corpus,
-                                                                                 translator=trg2src_translator),
-                                          batch_size=args.batch)
-            trainers.append(srcback2trg_trainer)
+        trainers.append(src2trg_trainer)
     # if args.src2trg is not None:
     #     f1 = open(args.src2trg[0], encoding=args.encoding, errors='surrogateescape')
     #     f2 = open(args.src2trg[1], encoding=args.encoding, errors='surrogateescape')
@@ -395,12 +410,15 @@ def main_train():
     # Build loggers
     loggers = []
 
-    loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, [], None, args.encoding))
-    loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [], None, args.encoding))
-    loggers.append(Logger('Source to source', src2src_trainer, [], None, args.encoding))
-    loggers.append(Logger('Target to target', trg2trg_trainer, [], None, args.encoding))
-    loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding))
-    loggers.append(Logger('Target to source', trg2src_trainer, [], None, args.encoding))
+    if args.corpus_mode == 'mono':
+        loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, [], None, args.encoding))
+        loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [], None, args.encoding))
+        loggers.append(Logger('Source to source', src2src_trainer, [], None, args.encoding))
+        loggers.append(Logger('Target to target', trg2trg_trainer, [], None, args.encoding))
+        loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding))
+        loggers.append(Logger('Target to source', trg2src_trainer, [], None, args.encoding))
+    elif args.corpus_mode == 'para':
+        loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding))
 
     # loggers = []
     # src2src_output = trg2trg_output = src2trg_output = trg2src_output = None
