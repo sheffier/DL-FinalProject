@@ -34,6 +34,9 @@ def main():
                         help='the input file for translation')
     parser.add_argument('-o', '--output', type=str, default='./data/processed_data/valid/res.article',
                         help='the output file')
+    parser.add_argument('--ref', type=str, default='./data/processed_data/valid/valid.article',
+                        help='the reference file')
+
     args = parser.parse_args()
 
     # Load model
@@ -51,12 +54,15 @@ def main():
             fin_labels = stack.enter_context(open(args.input + '.labels', encoding=args.encoding, errors='surrogateescape'))
             fout_content = stack.enter_context(open(args.output + '.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
             fout_labels = stack.enter_context(open(args.output + '.labels', mode='w', encoding=args.encoding, errors='surrogateescape'))
+            fref_content = stack.enter_context(open(args.ref + '.content', encoding=args.encoding, errors='surrogateescape'))
 
             content_batch = []
             labels_batch = []
+            ref_batch = []
             while len(content_batch) < args.batch_size and not end:
                 content = fin_content.readline()
                 labels = fin_labels.readline()
+                ref = fref_content.readline()
                 content_ids = [int(idstr) for idstr in content.strip().split()]
                 labels_ids = [int(idstr) for idstr in labels.strip().split()]
 
@@ -65,14 +71,15 @@ def main():
                 else:
                     content_batch.append(content_ids)
                     labels_batch.append(labels_ids)
+                    ref_batch.append(ref.strip())
             if args.beam_size <= 0 and len(content_batch) > 0:
-                for w_translation, f_translation in zip(*translator.greedy(content_batch, labels_batch, train=False)):
+                for idx, (w_translation, f_translation) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
                     w_str_trans = bpemb_en.decode_ids(w_translation)
                     f_str_trans = " ".join([translator.trg_field_dict.id2word[idx] for idx in f_translation])
                     fout_content.write(w_str_trans + '\n')
                     fout_labels.write(f_str_trans + '\n')
                     print(w_str_trans)
-                    print(f_str_trans)
+                    print(ref_batch[idx])
             elif len(content_batch) > 0:
                 pass
                 # for translation in translator.beam_search(batch, train=False, beam_size=args.beam_size):
