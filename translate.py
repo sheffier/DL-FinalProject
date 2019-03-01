@@ -65,13 +65,14 @@ def main():
                 ref = fref_content.readline()
                 content_ids = [int(idstr) for idstr in content.strip().split()]
                 labels_ids = [int(idstr) for idstr in labels.strip().split()]
+                ref_ids = [int(idstr) for idstr in ref.strip().split()]
 
                 if not content:
                     end = True
                 else:
                     content_batch.append(content_ids)
                     labels_batch.append(labels_ids)
-                    ref_batch.append(ref.strip())
+                    ref_batch.append(ref_ids)
             if args.beam_size <= 0 and len(content_batch) > 0:
                 for idx, (w_translation, f_translation) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
                     w_str_trans = bpemb_en.decode_ids(w_translation)
@@ -79,7 +80,7 @@ def main():
                     fout_content.write(w_str_trans + '\n')
                     fout_labels.write(f_str_trans + '\n')
                     print(w_str_trans)
-                    print(ref_batch[idx])
+                    print(bpemb_en.decode_ids(ref_batch[idx]))
             elif len(content_batch) > 0:
                 pass
                 # for translation in translator.beam_search(batch, train=False, beam_size=args.beam_size):
