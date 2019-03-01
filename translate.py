@@ -66,7 +66,7 @@ def main():
                     content_batch.append(content_ids)
                     labels_batch.append(labels_ids)
             if args.beam_size <= 0 and len(content_batch) > 0:
-                for w_translation, f_translation in zip(translator.greedy(content_batch, labels_batch, train=False)):
+                for w_translation, f_translation in zip(*translator.greedy(content_batch, labels_batch, train=False)):
                     w_str_trans = bpemb_en.decode_ids(w_translation)
                     f_str_trans = " ".join([translator.trg_field_dict.id2word[idx] for idx in f_translation])
                     fout_content.write(w_str_trans + '\n')
