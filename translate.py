@@ -18,6 +18,7 @@ import sys
 import torch
 from contextlib import ExitStack
 from src.data import bpemb_en
+from nltk.translate.bleu_score import sentence_bleu
 
 
 def main():
@@ -77,10 +78,12 @@ def main():
                 for idx, (w_translation, f_translation) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
                     w_str_trans = bpemb_en.decode_ids(w_translation)
                     f_str_trans = " ".join([translator.trg_field_dict.id2word[idx] for idx in f_translation])
+                    ref_str = bpemb_en.decode_ids(ref_batch[idx])
                     fout_content.write(w_str_trans + '\n')
                     fout_labels.write(f_str_trans + '\n')
-                    print(w_str_trans)
-                    print(bpemb_en.decode_ids(ref_batch[idx]))
+                    print(w_str_trans.encode('utf-8'))
+                    print(ref_str.encode('utf-8'))
+                    print('BLEU-4: %f' % 100 * sentence_bleu([ref_str.split()], w_str_trans.split()))
             elif len(content_batch) > 0:
                 pass
                 # for translation in translator.beam_search(batch, train=False, beam_size=args.beam_size):
