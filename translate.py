@@ -74,18 +74,18 @@ def main():
 
     print("Start evaluation...")
 
-    bytes_read = 0
-    total_bytes = os.path.getsize(args.input + '.content')
-    target_bytes = 0
-    
-    while not end:
-        with ExitStack() as stack:
-            fin_content = stack.enter_context(open(args.input + '.content', encoding=args.encoding, errors='surrogateescape'))
-            fin_labels = stack.enter_context(open(args.input + '.labels', encoding=args.encoding, errors='surrogateescape'))
-            fout_content = stack.enter_context(open(args.output + '.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
-            fout_labels = stack.enter_context(open(args.output + '.labels', mode='w', encoding=args.encoding, errors='surrogateescape'))
-            fref_content = stack.enter_context(open(args.ref + '.content', encoding=args.encoding, errors='surrogateescape'))
+    with ExitStack() as stack:
+        fin_content = stack.enter_context(open(args.input + '.content', encoding=args.encoding, errors='surrogateescape'))
+        fin_labels = stack.enter_context(open(args.input + '.labels', encoding=args.encoding, errors='surrogateescape'))
+        fout_content = stack.enter_context(open(args.output + '.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
+        fout_labels = stack.enter_context(open(args.output + '.labels', mode='w', encoding=args.encoding, errors='surrogateescape'))
+        fref_content = stack.enter_context(open(args.ref + '.content', encoding=args.encoding, errors='surrogateescape'))
 
+        bytes_read = 0
+        total_bytes = os.path.getsize(args.input + '.content')
+        target_bytes = 0
+
+        while not end:
             content_batch = []
             labels_batch = []
             ref_batch = []
@@ -123,7 +123,6 @@ def main():
                     # avg_bleu += (100.0 * sentence_bleu([ref_str.split()], w_str_trans.split()))
                 # avg_bleu /= len(content_batch)
                 # print("avg_bleu %f" % avg_bleu)
-
             elif len(content_batch) > 0:
                 pass
                 # for translation in translator.beam_search(batch, train=False, beam_size=args.beam_size):
