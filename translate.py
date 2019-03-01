@@ -80,6 +80,8 @@ def main():
         fout_content = stack.enter_context(open(args.output + '.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
         fout_labels = stack.enter_context(open(args.output + '.labels', mode='w', encoding=args.encoding, errors='surrogateescape'))
         fref_content = stack.enter_context(open(args.ref + '.content', encoding=args.encoding, errors='surrogateescape'))
+        fref_str_content = stack.enter_context(open(args.ref + 'str.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
+
 
         bytes_read = 0
         total_bytes = os.path.getsize(args.input + '.content')
@@ -117,6 +119,7 @@ def main():
                     ref_str = bpemb_en.decode_ids(ref_batch[idx])
                     fout_content.write(w_str_trans + '\n')
                     fout_labels.write(f_str_trans + '\n')
+                    fref_str_content.write(ref_str + '\n')
                     # print(w_str_trans.encode('utf-8'))
                     # print(ref_str.encode('utf-8'))
                     # print('BLEU-4: %f' % (100 * sentence_bleu([ref_str.split()], w_str_trans.split())))
@@ -131,7 +134,7 @@ def main():
             # fout.flush()
 
     print("Evaluating BLEU")
-    eval_moses_bleu(args.ref + '.content', args.output + '.content')
+    eval_moses_bleu(args.ref + 'str.content', args.output + '.content')
     # fin.close()
     # fout.close()
 
