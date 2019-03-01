@@ -74,6 +74,10 @@ def main():
 
     print("Start evaluation...")
 
+    bytes_read = 0
+    total_bytes = os.path.getsize(args.input + '.content')
+    target_bytes = 0
+    
     while not end:
         with ExitStack() as stack:
             fin_content = stack.enter_context(open(args.input + '.content', encoding=args.encoding, errors='surrogateescape'))
@@ -86,9 +90,6 @@ def main():
             labels_batch = []
             ref_batch = []
             avg_bleu = 0
-            bytes_read = 0
-            total_bytes = os.path.getsize(args.input + '.content')
-            target_bytes = 0
             while len(content_batch) < args.batch_size and not end:
                 content = fin_content.readline()
                 labels = fin_labels.readline()
