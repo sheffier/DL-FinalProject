@@ -19,6 +19,29 @@ import torch
 from contextlib import ExitStack
 from src.data import bpemb_en
 from nltk.translate.bleu_score import sentence_bleu
+import subprocess
+import os
+
+
+# BLEU_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tools')
+# BLEU_SCRIPT_PATH = os.path.join(TOOLS_PATH, 'mosesdecoder/scripts/generic/multi-bleu.perl')
+
+
+def eval_moses_bleu(ref, hyp):
+    """
+    Given a file of hypothesis and reference files,
+    evaluate the BLEU score using Moses scripts.
+    """
+    assert os.path.isfile(ref) and os.path.isfile(hyp)
+    command = './multi-bleu.perl' + ' %s < %s'
+    p = subprocess.Popen(command % (ref, hyp), stdout=subprocess.PIPE, shell=True)
+    result = p.communicate()[0].decode("utf-8")
+    if result.startswith('BLEU'):
+        return float(result[7:result.index(',')])
+    else:
+        print('Impossible to parse BLEU score! "%s"' % result)
+        # logger.warning('Impossible to parse BLEU score! "%s"' % result)
+        return -1
 
 
 def main():
@@ -86,8 +109,9 @@ def main():
                     # print(ref_str.encode('utf-8'))
                     # print('BLEU-4: %f' % (100 * sentence_bleu([ref_str.split()], w_str_trans.split())))
                     avg_bleu += (100.0 * sentence_bleu([ref_str.split()], w_str_trans.split()))
-                avg_bleu /= len(content_batch)
-                print("avg_bleu %f" % avg_bleu)
+                # avg_bleu /= len(content_batch)
+                # print("avg_bleu %f" % avg_bleu)
+
             elif len(content_batch) > 0:
                 pass
                 # for translation in translator.beam_search(batch, train=False, beam_size=args.beam_size):
@@ -95,6 +119,8 @@ def main():
 
             # fout.flush()
 
+    print("Evaluating BLEU")
+    eval_moses_bleu(args.ref + '.content', args.output + '.content')
     # fin.close()
     # fout.close()
 
