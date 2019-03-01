@@ -16,6 +16,8 @@
 import argparse
 import sys
 import torch
+from contextlib import ExitStack
+from src.data import bpemb_en
 
 
 def main():
@@ -23,10 +25,15 @@ def main():
     parser = argparse.ArgumentParser(description='Translate using a pre-trained model')
     parser.add_argument('model', help='a model previously trained with train.py')
     parser.add_argument('--batch_size', type=int, default=50, help='the batch size (defaults to 50)')
-    parser.add_argument('--beam_size', type=int, default=12, help='the beam size (defaults to 12, 0 for greedy search)')
+    # parser.add_argument('--beam_size', type=int, default=12, help='the beam size (defaults to 12, 0 for greedy search)')
+    parser.add_argument('--beam_size', type=int, default=0, help='the beam size (defaults to 12, 0 for greedy search)')
     parser.add_argument('--encoding', default='utf-8', help='the character encoding for input/output (defaults to utf-8)')
-    parser.add_argument('-i', '--input', default=sys.stdin.fileno(), help='the input file (defaults to stdin)')
-    parser.add_argument('-o', '--output', default=sys.stdout.fileno(), help='the output file (defaults to stdout)')
+    # parser.add_argument('-i', '--input', default=sys.stdin.fileno(), help='the input file (defaults to stdin)')
+    # parser.add_argument('-o', '--output', default=sys.stdout.fileno(), help='the output file (defaults to stdout)')
+    parser.add_argument('-i', '--input', type=str, default='./data/processed_data/valid/valid.box',
+                        help='the input file for translation')
+    parser.add_argument('-o', '--output', type=str, default='./data/processed_data/valid/res.article',
+                        help='the output file')
     args = parser.parse_args()
 
     # Load model
@@ -34,25 +41,45 @@ def main():
 
     # Translate sentences
     end = False
-    fin = open(args.input, encoding=args.encoding, errors='surrogateescape')
-    fout = open(args.output, mode='w', encoding=args.encoding, errors='surrogateescape')
+
+    # fin = open(args.input, encoding=args.encoding, errors='surrogateescape')
+    # fout = open(args.output, mode='w', encoding=args.encoding, errors='surrogateescape')
+
     while not end:
-        batch = []
-        while len(batch) < args.batch_size and not end:
-            line = fin.readline()
-            if not line:
-                end = True
-            else:
-                batch.append(line)
-        if args.beam_size <= 0 and len(batch) > 0:
-            for translation in translator.greedy(batch, train=False):
-                print(translation, file=fout)
-        elif len(batch) > 0:
-            for translation in translator.beam_search(batch, train=False, beam_size=args.beam_size):
-                print(translation, file=fout)
-        fout.flush()
-    fin.close()
-    fout.close()
+        with ExitStack() as stack:
+            fin_content = stack.enter_context(open(args.input + '.content', encoding=args.encoding, errors='surrogateescape'))
+            fin_labels = stack.enter_context(open(args.input + '.labels', encoding=args.encoding, errors='surrogateescape'))
+            fout_content = stack.enter_context(open(args.output + '.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
+            fout_labels = stack.enter_context(open(args.output + '.labels', mode='w', encoding=args.encoding, errors='surrogateescape'))
+
+            content_batch = []
+            labels_batch = []
+            while len(batch) < args.batch_size and not end:
+                content = fin_content.readline()
+                labels = fin_labels.readline()
+
+                if not content:
+                    end = True
+                else:
+                    content_batch.append(content)
+                    labels_batch.append(labels)
+            if args.beam_size <= 0 and len(content_batch) > 0:
+                for w_translation, f_translation in translator.greedy(content_batch, labels_batch, train=False):
+                    w_str_trans = bpemb_en.decode_ids(w_translation)
+                    f_str_trans = " ".join([translator.trg_field_dict.id2word[idx] for idx in f_translation])
+                    fout_content.write(w_str_trans + '\n')
+                    fout_labels.write(f_str_trans + '\n')
+                    print(w_str_trans)
+                    print(f_str_trans)
+            elif len(content_batch) > 0:
+                pass
+                # for translation in translator.beam_search(batch, train=False, beam_size=args.beam_size):
+                #     print(translation, file=fout)
+
+            # fout.flush()
+
+    # fin.close()
+    # fout.close()
 
 
 if __name__ == '__main__':
