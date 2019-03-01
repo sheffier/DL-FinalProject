@@ -60,6 +60,7 @@ def main():
             content_batch = []
             labels_batch = []
             ref_batch = []
+            avg_bleu = 0
             while len(content_batch) < args.batch_size and not end:
                 content = fin_content.readline()
                 labels = fin_labels.readline()
@@ -81,9 +82,12 @@ def main():
                     ref_str = bpemb_en.decode_ids(ref_batch[idx])
                     fout_content.write(w_str_trans + '\n')
                     fout_labels.write(f_str_trans + '\n')
-                    print(w_str_trans.encode('utf-8'))
-                    print(ref_str.encode('utf-8'))
-                    print('BLEU-4: %f' % (100 * sentence_bleu([ref_str.split()], w_str_trans.split())))
+                    # print(w_str_trans.encode('utf-8'))
+                    # print(ref_str.encode('utf-8'))
+                    # print('BLEU-4: %f' % (100 * sentence_bleu([ref_str.split()], w_str_trans.split())))
+                    avg_bleu += (100.0 * sentence_bleu([ref_str.split()], w_str_trans.split()))
+                avg_bleu /= len(content_batch)
+                print("avg_bleu %f" % avg_bleu)
             elif len(content_batch) > 0:
                 pass
                 # for translation in translator.beam_search(batch, train=False, beam_size=args.beam_size):
