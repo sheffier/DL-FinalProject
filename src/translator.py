@@ -351,10 +351,13 @@ class Translator:
             exp_field_name = "[" + self.name + ":" + "ORG|LABELS" + "] "
             res_sent_name = "[" + self.name + ":" + "RES|CONTENT" + "] "
             res_field_name = "[" + self.name + ":" + "RES|LABELS" + "] "
-            print(exp_sent_name + bpemb_en.decode_ids(test_exp_sent))
-            print(exp_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_exp_field]))
-            print(res_sent_name + bpemb_en.decode_ids(test_res_sent))
-            print(res_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_res_field]))
+            try:
+                print(exp_sent_name + bpemb_en.decode_ids(test_exp_sent))
+                print(exp_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_exp_field]))
+                print(res_sent_name + bpemb_en.decode_ids(test_res_sent))
+                print(res_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_res_field]))
+            except:
+                print("An exception occurred")
 
         word_loss = self.word_criterion(word_logprobs.view(-1, word_logprobs.size()[-1]), out_word_ids_var.view(-1))
         field_loss = self.field_criterion(field_logprobs.view(-1, field_logprobs.size()[-1]), out_field_ids_var.view(-1))
