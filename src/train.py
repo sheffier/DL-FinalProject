@@ -236,7 +236,7 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=src_type, trg_type=trg_type,
                                     encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[trg_type],
-                                    denoising=not args.disable_denoising, device=device)
+                                    denoising=False, device=device)
     trg2trg_translator = Translator("trg2trg",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
                                     decoder_word_embeddings=trg_decoder_word_embeddings,
@@ -258,7 +258,7 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=trg_type, trg_type=src_type,
                                     encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[src_type],
-                                    denoising=not args.disable_denoising, device=device)
+                                    denoising=False, device=device)
 
     # Build trainers
     trainers = []
