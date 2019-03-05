@@ -38,7 +38,7 @@ class Dictionary(object):
         self.id2word = id2word
 
     @staticmethod
-    def _vocab2dict(vocab: Set):
+    def _vocab2dict(vocab: List):
         pass
 
     def __len__(self):
@@ -52,7 +52,7 @@ class Dictionary(object):
             dictionary = torch.load(dict_binpath)
             print("Done")
         elif vocab is not None:
-            assert isinstance(vocab, (str, set))
+            assert isinstance(vocab, (str, list))
 
             if isinstance(vocab, str):
                 assert os.path.isfile(vocab)
@@ -60,6 +60,7 @@ class Dictionary(object):
                 print("Loading vocabulary from %s ..." % vocab)
                 vocab = torch.load(vocab)
 
+            assert len(vocab) == len(set(vocab))
             print("Converting vocabulary to dictionary")
             dictionary = cls._vocab2dict(vocab)
             if dict_binpath is not None:
@@ -80,7 +81,7 @@ class LabelDict(Dictionary):
         self.null_index = self.word2id[FIELD_NULL]
 
     @staticmethod
-    def _vocab2dict(vocab: Set):
+    def _vocab2dict(vocab: List):
         word2id = {FIELD_PAD: 0, FIELD_UNK: 1, FIELD_NULL: 2}
 
         for idx, label in enumerate(vocab):
@@ -103,7 +104,7 @@ class BpeWordDict(Dictionary):
         self.sot_index = self.word2id[WORD_SOT]
 
     @staticmethod
-    def _vocab2dict(vocab: Set):
+    def _vocab2dict(vocab: List):
         word2id = {}
         for idx, word in enumerate(vocab):
             word2id[word] = idx

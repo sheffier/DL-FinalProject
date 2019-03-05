@@ -110,7 +110,25 @@ class Translator:
 
         return sents, sents_field
 
-    def preprocess_ids(self, sentences, sentences_field, eos=False, sos=False):
+    # @staticmethod
+    def add_noise(self, word_ids, field_ids):
+        for i in range(len(word_ids)):
+            length = len(word_ids[i])
+
+            if length > 2:
+                for it in range(length // 2):
+                    j = random.randrange(length - 1)
+
+                    word_ids[i][j], word_ids[i][j + 1] = word_ids[i][j + 1], word_ids[i][j]
+                    field_ids[i][j], field_ids[i][j + 1] = field_ids[i][j + 1], field_ids[i][j]
+
+        return word_ids, field_ids
+
+    def preprocess_ids(self, sentences, sentences_field, train=False, eos=False, sos=False):
+        if train and self.denoising:
+            # Add order noise
+            sentences, sentences_field = self.add_noise(sentences, sentences_field)
+
         word_ids, field_ids, lengths = self.add_control_sym(sentences, sentences_field, eos, sos)
         max_length = max(lengths)
 
@@ -126,19 +144,7 @@ class Translator:
     def encode(self, sentences, sentences_field, train=False):
         self._train(train)
 
-        word_ids, field_ids, lengths = self.preprocess_ids(sentences, sentences_field, eos=True)
-
-        if train and self.denoising:  # Add order noise
-            for i, length in enumerate(lengths):
-                if length > 2:
-                    for it in range(length//2):
-                        j = random.randint(0, length-2)
-                        if self.batch_first:
-                            word_ids[i][j], word_ids[i][j + 1] = word_ids[i][j + 1], word_ids[i][j]
-                            field_ids[i][j], field_ids[i][j + 1] = field_ids[i][j + 1], field_ids[i][j]
-                        else:
-                            word_ids[j][i], word_ids[j + 1][i] = word_ids[j + 1][i], word_ids[j][i]
-                            field_ids[j][i], field_ids[j + 1][i] = field_ids[j + 1][i], field_ids[j][i]
+        word_ids, field_ids, lengths = self.preprocess_ids(sentences, sentences_field, train=train, eos=True)
 
         with torch.no_grad():
             var_wordids = torch.LongTensor(word_ids).to(self.device)
@@ -343,7 +349,7 @@ class Translator:
             logger.debug('score: field_ids are on cuda: %d', out_field_ids_var.is_cuda)
 
         if curr_iter % print_every == 0:
-            test_exp_sent = out_word_ids_var.t()[0]
+            test_exp_sent = out_word_ids_var.t()[0][0:lengths[0]]
             test_exp_field = out_field_ids_var.t()[0].data.cpu().numpy().tolist()
             test_res_sent = word_logprobs.max(dim=2)[1].t()[0]
             test_res_field = field_logprobs.max(dim=2)[1].t()[0].data.cpu().numpy().tolist()
@@ -352,7 +358,12 @@ class Translator:
             res_sent_name = "[" + self.name + ":" + "RES|CONTENT" + "] "
             res_field_name = "[" + self.name + ":" + "RES|LABELS" + "] "
             try:
-                print(exp_sent_name + bpemb_en.decode_ids(test_exp_sent))
+                if max(lengths) - lengths[0]:
+                    temp = (max(lengths) - lengths[0]) * [self.trg_word_dict.id2word[self.w_pad_id]]
+                    temp = " " + " ".join(temp)
+                else:
+                    temp = ""
+                print(exp_sent_name + bpemb_en.decode_ids(test_exp_sent) + temp)
                 print(exp_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_exp_field]))
                 print(res_sent_name + bpemb_en.decode_ids(test_res_sent))
                 print(res_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_res_field]))

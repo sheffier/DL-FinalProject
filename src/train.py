@@ -73,6 +73,7 @@ def main_train():
     architecture_group.add_argument('--disable_bidirectional', action='store_true', help='use a single direction encoder')
     architecture_group.add_argument('--disable_denoising', action='store_true', help='disable random swaps')
     architecture_group.add_argument('--disable_backtranslation', action='store_true', help='disable backtranslation')
+    architecture_group.add_argument('--disable_field_loss', action='store_true', help='disable backtranslation')
 
     # Optimization
     optimization_group = parser.add_argument_group('optimization', 'Optimization related arguments')
@@ -174,7 +175,7 @@ def main_train():
         return optimizer
 
     # Load embedding and/or vocab
-    word_dict = BpeWordDict.get(vocab=set(bpemb_en.words))
+    word_dict = BpeWordDict.get(vocab=bpemb_en.words)
     w_sos_id = {'text': word_dict.bos_index, 'table': word_dict.sot_index}
 
     word_embeddings = nn.Embedding(len(word_dict), bpemb_en.dim, padding_idx=word_dict.pad_index)
@@ -444,7 +445,7 @@ def main_train():
     # Training
     for curr_iter in range(1, args.iterations + 1):
         for trainer in trainers:
-            trainer.step(curr_iter, args.log_interval)
+            trainer.step(curr_iter, args.log_interval, include_field_loss=not args.disable_field_loss)
 
         if args.save is not None and args.save_interval > 0 and curr_iter % args.save_interval == 0:
             save_models('it{0}'.format(curr_iter))
@@ -466,7 +467,7 @@ class Trainer:
         self.batch_size = batch_size
         self.reset_stats()
 
-    def step(self, curr_iter, print_every=1):
+    def step(self, curr_iter, print_every=1, include_field_loss=True):
         # Reset gradients
         for optimizer in self.optimizers:
             optimizer.zero_grad()
@@ -482,9 +483,14 @@ class Trainer:
         t = time.time()
         word_loss, field_loss = self.translator.score(src_word, trg_word, src_field, trg_field, curr_iter,
                                                       print_every=print_every, train=True)
-        total_loss = word_loss + field_loss
+
+        if include_field_loss:
+            total_loss = word_loss + field_loss
+            self.field_loss += field_loss.item()
+        else:
+            total_loss = word_loss
+
         self.word_loss += word_loss.item()
-        self.field_loss += field_loss.item()
         self.forward_time += time.time() - t
 
         # Backpropagate error + optimize
