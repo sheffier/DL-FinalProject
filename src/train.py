@@ -137,21 +137,6 @@ def main_train():
     assert src_type != trg_type
     assert (src_type in ['table', 'text']) and (trg_type in ['table', 'text'])
 
-    # if args.word_embeddings is None and args.word_vocabulary is None or\
-    #         args.field_embeddings is None and args.field_vocabulary is None:
-    #     print('Either an embedding or a vocabulary file must be provided')
-    #     sys.exit(-1)
-    # if args.word_embeddings is None and (not args.learn_encoder_embeddings or args.fixed_decoder_embeddings or args.fixed_generator):
-    #     print('Either provide pre-trained word embeddings or set to learn the encoder/decoder embeddings and generator')
-    #     sys.exit(-1)
-    # if args.word_embeddings is None and args.word_embedding_size == 0 or \
-    #         args.field_embeddings is None and args.field_embedding_size == 0:
-    #     print('Either provide pre-trained embeddings or the embedding size')
-    #     sys.exit(-1)
-    # if len(args.validation) % 2 != 0:
-    #     print('--validation should have an even number of arguments (one pair for each validation set)')
-    #     sys.exit(-1)
-
     # Select device
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -197,42 +182,6 @@ def main_train():
     field_embeddings.weight.requires_grad = True
     logger.debug('f_embeddings is running on cuda: %d', next(word_embeddings.parameters()).is_cuda)
 
-    # words = field_labels = word_embeddings = field_embeddings = None
-    # word_embedding_size = args.word_embedding_size
-    # field_embedding_size = args.field_embedding_size
-    # if args.word_vocabulary is not None:
-    #     f = open(args.word_vocabulary, encoding=args.encoding, errors='surrogateescape')
-    #     words = [line.strip() for line in f.readlines()]
-    #     if args.cutoff > 0:
-    #         words = words[:args.cutoff]
-    #     word_dict = data.Dictionary(words)
-    # if args.field_vocabulary is not None:
-    #     f = open(args.field_vocabulary, encoding=args.encoding, errors='surrogateescape')
-    #     field_labels = [line.strip() for line in f.readlines()]
-    #     if args.cutoff > 0:
-    #         field_labels = field_labels[:args.cutoff]
-    #     field_dict = data.Dictionary(field_labels)
-    # if args.word_embeddings is not None:
-    #     f = open(args.word_embeddings, encoding=args.encoding, errors='surrogateescape')
-    #     word_embeddings, word_dict = data.read_embeddings(f, args.cutoff, words)
-    #     word_embeddings = device(word_embeddings)
-    #     word_embeddings.requires_grad = False
-    #     if word_embedding_size == 0:
-    #         word_embedding_size = word_embeddings.weight.data.size()[1]
-    #     if word_embedding_size != word_embeddings.weight.data.size()[1]:
-    #         print('Word Embedding sizes do not match')
-    #         sys.exit(-1)
-    # if args.field_embeddings is not None:
-    #     f = open(args.field_embeddings, encoding=args.encoding, errors='surrogateescape')
-    #     field_embeddings, field_dict = data.read_embeddings(f, args.cutoff, field_labels)
-    #     field_embeddings = device(field_embeddings)
-    #     field_embeddings.requires_grad = False
-    #     if field_embedding_size == 0:
-    #         field_embedding_size = field_embeddings.weight.data.size()[1]
-    #     if field_embedding_size != field_embeddings.weight.data.size()[1]:
-    #         print('Field Embedding sizes do not match')
-    #         sys.exit(-1)
-
     src_encoder_word_embeddings = word_embeddings
     trg_encoder_word_embeddings = word_embeddings
     src_encoder_field_embeddings = field_embeddings
@@ -243,14 +192,6 @@ def main_train():
     src_decoder_field_embeddings = field_embeddings
     trg_decoder_field_embeddings = field_embeddings
 
-    # if args.fixed_generator:
-    #     src_embedding_generator = device(EmbeddingGenerator(hidden_size=args.hidden, word_embedding_size=word_embedding_size))
-    #     trg_embedding_generator = device(EmbeddingGenerator(hidden_size=args.hidden, word_embedding_size=word_embedding_size))
-    #     add_optimizer(src_embedding_generator, (src2src_optimizers, trg2src_optimizers))
-    #     add_optimizer(trg_embedding_generator, (trg2trg_optimizers, src2trg_optimizers))
-    #     src_generator = device(WrappedEmbeddingGenerator(src_embedding_generator, src_embeddings))
-    #     trg_generator = device(WrappedEmbeddingGenerator(trg_embedding_generator, trg_embeddings))
-    # else:
     src_generator = LinearGenerator(args.hidden, len(word_dict), len(field_dict)).to(device)
     trg_generator = LinearGenerator(args.hidden, len(word_dict), len(field_dict)).to(device)
     logger.debug('src generator is running on cuda: %d', next(src_generator.parameters()).is_cuda)
@@ -272,11 +213,6 @@ def main_train():
     logger.debug('decoder model is running on cuda: %d', next(decoder.parameters()).is_cuda)
     logger.debug('attention model is running on cuda: %d', next(decoder.attention.parameters()).is_cuda)
     add_optimizer(decoder, (src2src_optimizers, trg2trg_optimizers, src2trg_optimizers, trg2src_optimizers))
-
-    # src_decoder = device(RNNAttentionDecoder(word_embedding_size=word_embedding_size, hidden_size=args.hidden, layers=args.layers, dropout=args.dropout))
-    # trg_decoder = device(RNNAttentionDecoder(word_embedding_size=word_embedding_size, hidden_size=args.hidden, layers=args.layers, dropout=args.dropout))
-    # add_optimizer(src_decoder, (src2src_optimizers, trg2src_optimizers))
-    # add_optimizer(trg_decoder, (trg2trg_optimizers, src2trg_optimizers))
 
     # Build translators
     src2src_translator = Translator("src2src",
@@ -369,44 +305,6 @@ def main_train():
         src2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers, corpus=corpus,
                                   batch_size=args.batch)
         trainers.append(src2trg_trainer)
-    # if args.src2trg is not None:
-    #     f1 = open(args.src2trg[0], encoding=args.encoding, errors='surrogateescape')
-    #     f2 = open(args.src2trg[1], encoding=args.encoding, errors='surrogateescape')
-    #     corpus = data.CorpusReader(f1, f2, max_sentence_length=args.max_sentence_length,
-    #                                cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
-    #     src2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers, corpus=corpus,
-    #                               batch_size=args.batch)
-    #     trainers.append(src2trg_trainer)
-    # if args.trg2src is not None:
-    #     f1 = open(args.trg2src[0], encoding=args.encoding, errors='surrogateescape')
-    #     f2 = open(args.trg2src[1], encoding=args.encoding, errors='surrogateescape')
-    #     corpus = data.CorpusReader(f1, f2, max_sentence_length=args.max_sentence_length,
-    #                                cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
-    #     trg2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers, corpus=corpus,
-    #                               batch_size=args.batch)
-    #     trainers.append(trg2src_trainer)
-
-    # Build validators
-    # src2src_validators = []
-    # trg2trg_validators = []
-    # src2trg_validators = []
-    # trg2src_validators = []
-    # for i in range(0, len(args.validation), 2):
-    #     src_validation = open(args.validation[i],   encoding=args.encoding, errors='surrogateescape').readlines()
-    #     trg_validation = open(args.validation[i+1], encoding=args.encoding, errors='surrogateescape').readlines()
-    #     if len(src_validation) != len(trg_validation):
-    #         print('Validation sizes do not match')
-    #         sys.exit(-1)
-    #     map(lambda x: x.strip(), src_validation)
-    #     map(lambda x: x.strip(), trg_validation)
-    #     if 'src2src' in args.validation_directions:
-    #         src2src_validators.append(Validator(src2src_translator, src_validation, src_validation, args.batch, args.validation_beam_size))
-    #     if 'trg2trg' in args.validation_directions:
-    #         trg2trg_validators.append(Validator(trg2trg_translator, trg_validation, trg_validation, args.batch, args.validation_beam_size))
-    #     if 'src2trg' in args.validation_directions:
-    #         src2trg_validators.append(Validator(src2trg_translator, src_validation, trg_validation, args.batch, args.validation_beam_size))
-    #     if 'trg2src' in args.validation_directions:
-    #         trg2src_validators.append(Validator(trg2src_translator, trg_validation, src_validation, args.batch, args.validation_beam_size))
 
     # Build loggers
     loggers = []
@@ -420,20 +318,6 @@ def main_train():
         loggers.append(Logger('Target to source', trg2src_trainer, [], None, args.encoding))
     elif args.corpus_mode == 'para':
         loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding))
-
-    # loggers = []
-    # src2src_output = trg2trg_output = src2trg_output = trg2src_output = None
-    # if args.validation_output is not None:
-    #     src2src_output = '{0}.src2src'.format(args.validation_output)
-    #     trg2trg_output = '{0}.trg2trg'.format(args.validation_output)
-    #     src2trg_output = '{0}.src2trg'.format(args.validation_output)
-    #     trg2src_output = '{0}.trg2src'.format(args.validation_output)
-    # loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, [], None, args.encoding))
-    # loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [], None, args.encoding))
-    # loggers.append(Logger('Source to source', src2src_trainer, src2src_validators, src2src_output, args.encoding))
-    # loggers.append(Logger('Target to target', trg2trg_trainer, trg2trg_validators, trg2trg_output, args.encoding))
-    # loggers.append(Logger('Source to target', src2trg_trainer, src2trg_validators, src2trg_output, args.encoding))
-    # loggers.append(Logger('Target to source', trg2src_trainer, trg2src_validators, trg2src_output, args.encoding))
 
     # Method to save models
     def save_models(name):
