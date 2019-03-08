@@ -20,6 +20,7 @@ import logging
 
 from src.data import bpemb_en
 from src.data import LabelDict, BpeWordDict
+import copy
 
 
 logger = logging.getLogger()
@@ -319,7 +320,7 @@ class Translator:
     #                     word_translation_scores[sentence_index] = word_hypotheses[sentence_index][0]
     #     return self.trg_word_dict.ids2sentences(word_translations)
 
-    def score(self, src_word, trg_word, src_field, trg_field, curr_iter, print_every=1, train=False):
+    def score(self, src_word, trg_word, src_field, trg_field, print_dbg=False, train=False):
         self._train(train)
 
         # Check batch sizes
@@ -327,6 +328,12 @@ class Translator:
             raise Exception('Sentence and hypothesis lengths do not match')
 
         # Encode
+        if print_dbg:
+            wsrc_dbg = bpemb_en.decode_ids(src_word[0])
+            fsrc_dbg = " ".join([self.trg_field_dict.id2word[idx] for idx in src_field[0]])
+
+        # tmp_src_word = copy.deepcopy(src_word)
+        # tmp_src_field = copy.deepcopy(src_field)
         hidden, context, context_lengths = self.encode(src_word, src_field, train)
         context_mask = self.mask(context_lengths)
         if context_mask is not None:
@@ -348,25 +355,31 @@ class Translator:
             logger.debug('score: word_ids are on cuda: %d', out_word_ids_var.is_cuda)
             logger.debug('score: field_ids are on cuda: %d', out_field_ids_var.is_cuda)
 
-        if curr_iter % print_every == 0:
+        # if print_dbg and self.name == 'src2trg':
+        if print_dbg:
             test_exp_sent = out_word_ids_var.t()[0][0:lengths[0]]
             test_exp_field = out_field_ids_var.t()[0].data.cpu().numpy().tolist()
             test_res_sent = word_logprobs.max(dim=2)[1].t()[0]
             test_res_field = field_logprobs.max(dim=2)[1].t()[0].data.cpu().numpy().tolist()
-            exp_sent_name = "[" + self.name + ":" + "ORG|CONTENT" + "] "
-            exp_field_name = "[" + self.name + ":" + "ORG|LABELS" + "] "
-            res_sent_name = "[" + self.name + ":" + "RES|CONTENT" + "] "
-            res_field_name = "[" + self.name + ":" + "RES|LABELS" + "] "
+            src_sent_name = "[" + self.name + ":" + "IN|CONTENT" + "] "
+            src_field_name = "[" + self.name + ":" + "IN|LABELS" + "] "
+            exp_sent_name = "[" + self.name + ":" + "OUT_EXP|CONTENT" + "] "
+            exp_field_name = "[" + self.name + ":" + "OUT_EXP|LABELS" + "] "
+            res_sent_name = "[" + self.name + ":" + "OUT_RES|CONTENT" + "] "
+            res_field_name = "[" + self.name + ":" + "OUT_RES|LABELS" + "] "
             try:
                 if max(lengths) - lengths[0]:
                     temp = (max(lengths) - lengths[0]) * [self.trg_word_dict.id2word[self.w_pad_id]]
                     temp = " " + " ".join(temp)
                 else:
                     temp = ""
+                print(src_sent_name + wsrc_dbg)
                 print(exp_sent_name + bpemb_en.decode_ids(test_exp_sent) + temp)
-                print(exp_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_exp_field]))
                 print(res_sent_name + bpemb_en.decode_ids(test_res_sent))
+                print(src_field_name + fsrc_dbg)
+                print(exp_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_exp_field]))
                 print(res_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_res_field]))
+                print('\n')
             except:
                 print("An exception occurred")
 

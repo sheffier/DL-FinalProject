@@ -28,6 +28,7 @@ from src.translator import Translator
 from src.data import BpeWordDict, LabelDict
 from src.data import bpemb_en
 from torch import nn
+from contextlib import ExitStack
 
 
 
@@ -91,6 +92,8 @@ def main_train():
     # Logging/validation
     logging_group = parser.add_argument_group('logging', 'Logging and validation arguments')
     logging_group.add_argument('--log_interval', type=int, default=1000, help='log at this interval (defaults to 1000)')
+    logging_group.add_argument('--src_valid_corpus', type=str, default='./data/processed_data/valid/valid.box')
+    logging_group.add_argument('--trg_valid_corpus', type=str, default='./data/processed_data/valid/valid.article')
     logging_group.add_argument('--validation', nargs='+', default=(), help='use parallel corpora for validation')
     logging_group.add_argument('--validation_directions', nargs='+', default=['src2src', 'trg2trg', 'src2trg', 'trg2src'], help='validation directions')
     logging_group.add_argument('--validation_output', metavar='PREFIX', help='output validation translations with the given prefix')
@@ -262,8 +265,6 @@ def main_train():
 
     # Build trainers
     trainers = []
-    src2src_trainer = trg2trg_trainer = src2trg_trainer = trg2src_trainer = None
-    srcback2trg_trainer = trgback2src_trainer = None
 
     if args.corpus_mode == 'mono':
         if args.src_corpus_params is not None:
@@ -306,25 +307,53 @@ def main_train():
                                   batch_size=args.batch)
         trainers.append(src2trg_trainer)
 
+    # Build validators
+    src2trg_validators = []
+
+    with ExitStack() as stack:
+        src_content_vfile = stack.enter_context(open(args.src_valid_corpus + '.content', encoding=args.encoding,
+                                                     errors='surrogateescape'))
+        src_labels_vfile = stack.enter_context(open(args.src_valid_corpus + '.labels', encoding=args.encoding,
+                                                    errors='surrogateescape'))
+        trg_content_vfile = stack.enter_context(open(args.trg_valid_corpus + '.content', encoding=args.encoding,
+                                                     errors='surrogateescape'))
+        trg_labels_vfile = stack.enter_context(open(args.trg_valid_corpus + '.labels', encoding=args.encoding,
+                                                    errors='surrogateescape'))
+
+        src_content = src_content_vfile.readlines()
+        src_labels = src_labels_vfile.readlines()
+        trg_content = trg_content_vfile.readlines()
+        trg_labels = trg_labels_vfile.readlines()
+        if len(src_content) != len(trg_content) != len(src_labels) != len(trg_labels):
+            print('Validation sizes do not match')
+            sys.exit(-1)
+
+        src_content = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), src_content))
+        src_labels = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), src_labels))
+        trg_content = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), trg_content))
+        trg_labels = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), trg_labels))
+
+        src2trg_validators.append(Validator(src2trg_translator, src_content, trg_content,
+                                            src_labels, trg_labels, args.batch, 0))
+
     # Build loggers
     loggers = []
 
     if args.corpus_mode == 'mono':
-        loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, [], None, args.encoding))
+        loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, src2trg_validators, None,
+                              args.encoding))
         loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [], None, args.encoding))
         loggers.append(Logger('Source to source', src2src_trainer, [], None, args.encoding))
         loggers.append(Logger('Target to target', trg2trg_trainer, [], None, args.encoding))
-        loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding))
-        loggers.append(Logger('Target to source', trg2src_trainer, [], None, args.encoding))
     elif args.corpus_mode == 'para':
-        loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding))
+        loggers.append(Logger('Source to target', src2trg_trainer, src2trg_validators, None, args.encoding))
 
     # Method to save models
     def save_models(name):
-        torch.save(src2src_translator, '{0}.{1}.src2src.pth'.format(args.save, name))
-        torch.save(trg2trg_translator, '{0}.{1}.trg2trg.pth'.format(args.save, name))
+        # torch.save(src2src_translator, '{0}.{1}.src2src.pth'.format(args.save, name))
+        # torch.save(trg2trg_translator, '{0}.{1}.trg2trg.pth'.format(args.save, name))
         torch.save(src2trg_translator, '{0}.{1}.src2trg.pth'.format(args.save, name))
-        torch.save(trg2src_translator, '{0}.{1}.trg2src.pth'.format(args.save, name))
+        # torch.save(trg2src_translator, '{0}.{1}.trg2src.pth'.format(args.save, name))
 
     # Training
     for curr_iter in range(1, args.iterations + 1):
@@ -365,8 +394,8 @@ class Trainer:
 
         # Compute loss
         t = time.time()
-        word_loss, field_loss = self.translator.score(src_word, trg_word, src_field, trg_field, curr_iter,
-                                                      print_every=print_every, train=True)
+        word_loss, field_loss = self.translator.score(src_word, trg_word, src_field, trg_field,
+                                                      print_dbg=(curr_iter % print_every == 0), train=True)
 
         if include_field_loss:
             total_loss = word_loss + field_loss
@@ -404,40 +433,58 @@ class Trainer:
 
 
 class Validator:
-    def __init__(self, translator, source, reference, batch_size=50, beam_size=0):
+    def __init__(self, translator, src_content, ref_content, src_labels, ref_labels, batch_size=50, beam_size=0):
         self.translator = translator
-        self.source = source
-        self.reference = reference
-        self.sentence_count = len(source)
-        self.reference_word_count = sum([len(data.tokenize(sentence)) + 1 for sentence in self.reference])  # TODO Depends on special symbols EOS/SOS
+        self.src_content = src_content
+        self.ref_content = ref_content
+        self.src_labels = src_labels
+        self.ref_labels = ref_labels
+        self.sentence_count = len(src_content)
+        self.reference_word_count = sum([len(sentence) + 1 for sentence in self.ref_content])  # TODO Depends on special symbols EOS/SOS
         self.batch_size = batch_size
         self.beam_size = beam_size
 
         # Sorting
-        lengths = [len(data.tokenize(sentence)) for sentence in self.source]
+        lengths = [len(sentence) for sentence in self.src_content]
         self.true2sorted = sorted(range(self.sentence_count), key=lambda x: -lengths[x])
         self.sorted2true = sorted(range(self.sentence_count), key=lambda x: self.true2sorted[x])
-        self.sorted_source = [self.source[i] for i in self.true2sorted]
-        self.sorted_reference = [self.reference[i] for i in self.true2sorted]
+        self.sorted_src_content = [self.src_content[i] for i in self.true2sorted]
+        self.sorted_ref_content = [self.ref_content[i] for i in self.true2sorted]
+        self.sorted_src_labels = [self.src_labels[i] for i in self.true2sorted]
+        self.sorted_ref_labels = [self.ref_labels[i] for i in self.true2sorted]
 
     def perplexity(self):
-        loss = 0
+        w_loss = 0
+        f_loss = 0
         for i in range(0, self.sentence_count, self.batch_size):
             j = min(i + self.batch_size, self.sentence_count)
-            word_loss, field_loss = self.translator.score(self.sorted_source[i:j], self.sorted_reference[i:j], train=False).data[0]
-            loss += word_loss
-        return np.exp(loss/self.reference_word_count)
+            word_loss, field_loss = self.translator.score(
+                self.sorted_src_content[i:j],
+                self.sorted_ref_content[i:j],
+                self.sorted_src_labels[i:j],
+                self.sorted_ref_labels[i:j],
+                print_dbg=False,
+                train=False)
+            w_loss += word_loss.item()
+            f_loss += field_loss.item()
+        return np.exp(w_loss/self.reference_word_count),\
+               np.exp(f_loss/self.reference_word_count)
 
     def translate(self):
-        translations = []
+        w_translations = []
+        f_translations = []
         for i in range(0, self.sentence_count, self.batch_size):
             j = min(i + self.batch_size, self.sentence_count)
-            batch = self.sorted_source[i:j]
+            content_batch = self.sorted_src_content[i:j]
+            labels_batch = self.sorted_src_labels[i:j]
             if self.beam_size <= 0:
-                translations += self.translator.greedy(batch, train=False)
+                w_translation, f_translation = self.translator.greedy(content_batch, labels_batch, train=False)
+                w_translations.append(w_translation)
+                f_translations.append(f_translation)
             else:
-                translations += self.translator.beam_search(batch, train=False, beam_size=self.beam_size)
-        return [translations[i] for i in self.sorted2true]
+                pass
+                # translations += self.translator.beam_search(batch, train=False, beam_size=self.beam_size)
+        return [w_translations[i] for i in self.sorted2true], [f_translations[i] for i in self.sorted2true]
 
 
 class Logger:
@@ -452,8 +499,8 @@ class Logger:
         if self.trainer is not None or len(self.validators) > 0:
             print('{0}'.format(self.name))
         if self.trainer is not None:
-            w_loss = self.trainer.word_loss/self.trainer.batch_size / self.trainer.trg_word_count
-            f_loss = self.trainer.field_loss/self.trainer.batch_size / self.trainer.trg_word_count
+            w_loss = self.trainer.word_loss / self.trainer.trg_word_count
+            f_loss = self.trainer.field_loss / self.trainer.trg_word_count
 
             print('  - Training:   {0:10.2f}   ({1:.2f}s: {2:.2f}tok/s src, {3:.2f}tok/s trg; epoch {4})'
                   .format(self.trainer.perplexity_per_word(), self.trainer.total_time(),
@@ -462,13 +509,15 @@ class Logger:
                   .format(w_loss, f_loss, self.trainer.io_time, self.trainer.forward_time, self.trainer.backward_time))
             self.trainer.reset_stats()
         for id, validator in enumerate(self.validators):
-            t = time.time()
-            perplexity = validator.perplexity()
-            print('  - Validation: {0:10.2f}   ({1:.2f}s)'.format(perplexity, time.time() - t))
-            if self.output_prefix is not None:
-                f = open('{0}.{1}.{2}.txt'.format(self.output_prefix, id, step), mode='w',
-                         encoding=self.encoding, errors='surrogateescape')
-                for line in validator.translate():
-                    print(line, file=f)
-                f.close()
+            if self.trainer.corpus.validate:
+                t = time.time()
+                self.trainer.corpus.validate = False
+                w_pps, f_pps = validator.perplexity()
+                print('  - Validation: {0:10.2f} {1:10.2f}  ({2:.2f}s)'.format(w_pps, f_pps, time.time() - t))
+                if self.output_prefix is not None:
+                    f = open('{0}.{1}.{2}.txt'.format(self.output_prefix, id, step), mode='w',
+                             encoding=self.encoding, errors='surrogateescape')
+                    for line in validator.translate():
+                        print(line, file=f)
+                    f.close()
         sys.stdout.flush()

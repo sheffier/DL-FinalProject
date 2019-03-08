@@ -264,6 +264,7 @@ class CorpusReader:
         self.cache = []
         self.cache_size = cache_size
         self.max_sentence_length = max_sentence_length
+        self.validate = False
 
     def _fill_cache(self):
         self.next = 0
@@ -374,10 +375,14 @@ class BacktranslatorCorpusReader:
         self.corpus = corpus
         self.translator = translator
         self.epoch = corpus.epoch
+        self.validate = False
 
     def next_batch(self, size):
         src_word, trg_word, src_field, trg_field = self.corpus.next_batch(size)
         src_word, src_field = self.translator.greedy(trg_word, trg_field, train=False)
+        if self.corpus.epoch > self.epoch:
+            self.validate = True
+
         self.epoch = self.corpus.epoch
         return src_word, trg_word, src_field, trg_field
 
