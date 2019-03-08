@@ -357,13 +357,14 @@ def main_train():
 
     # Training
     for curr_iter in range(1, args.iterations + 1):
+        print_dbg = (curr_iter % args.log_interval == 0)
         for trainer in trainers:
-            trainer.step(curr_iter, args.log_interval, include_field_loss=not args.disable_field_loss)
+            trainer.step(print_dbg=print_dbg, include_field_loss=not args.disable_field_loss)
 
         if args.save is not None and args.save_interval > 0 and curr_iter % args.save_interval == 0:
             save_models('it{0}'.format(curr_iter))
 
-        if curr_iter % args.log_interval == 0:
+        if print_dbg:
             print()
             print('STEP {0} x {1}'.format(curr_iter, args.batch))
             for logger in loggers:
@@ -380,7 +381,7 @@ class Trainer:
         self.batch_size = batch_size
         self.reset_stats()
 
-    def step(self, curr_iter, print_every=1, include_field_loss=True):
+    def step(self, print_dbg=False, include_field_loss=True):
         # Reset gradients
         for optimizer in self.optimizers:
             optimizer.zero_grad()
@@ -395,7 +396,7 @@ class Trainer:
         # Compute loss
         t = time.time()
         word_loss, field_loss = self.translator.score(src_word, trg_word, src_field, trg_field,
-                                                      print_dbg=(curr_iter % print_every == 0), train=True)
+                                                      print_dbg=print_dbg, train=True)
 
         if include_field_loss:
             total_loss = word_loss + field_loss
@@ -502,18 +503,19 @@ class Logger:
             w_loss = self.trainer.word_loss / self.trainer.trg_word_count
             f_loss = self.trainer.field_loss / self.trainer.trg_word_count
 
-            print('  - Training:   {0:10.2f}   ({1:.2f}s: {2:.2f}tok/s src, {3:.2f}tok/s trg; epoch {4})'
-                  .format(self.trainer.perplexity_per_word(), self.trainer.total_time(),
+            print('  - Training:     pps {0:6.3f} | w_loss {1:3.4f} | f_loss {2:3.4f}'
+                  '  (t_time {3:.2f}s io_time {4:.2f}s; fw_time {5:.2f}s; bw_time {6:.2f}s: '
+                  '{7:.2f}tok/s src, {8:.2f}tok/s trg; epoch {9})'
+                  .format(self.trainer.perplexity_per_word(), w_loss, f_loss, self.trainer.total_time(),
+                          self.trainer.io_time, self.trainer.forward_time, self.trainer.backward_time,
                           self.trainer.words_per_second()[0], self.trainer.words_per_second()[1], self.trainer.corpus.epoch))
-            print('w_loss {0} f_loss {1}; io_time {2:.2f}s; fw_time {3:.2f}s; bw_time {4:.2f}s'
-                  .format(w_loss, f_loss, self.trainer.io_time, self.trainer.forward_time, self.trainer.backward_time))
             self.trainer.reset_stats()
         for id, validator in enumerate(self.validators):
             if self.trainer.corpus.validate:
                 t = time.time()
                 self.trainer.corpus.validate = False
                 w_pps, f_pps = validator.perplexity()
-                print('  - Validation: {0:10.2f} {1:10.2f}  ({2:.2f}s)'.format(w_pps, f_pps, time.time() - t))
+                print('  - Validation: w_pps {0:10.3f}; f_pps{1:10.5f}  ({2:.2f}s)'.format(w_pps, f_pps, time.time() - t))
                 if self.output_prefix is not None:
                     f = open('{0}.{1}.{2}.txt'.format(self.output_prefix, id, step), mode='w',
                              encoding=self.encoding, errors='surrogateescape')
