@@ -20,7 +20,8 @@ import numpy as np
 import collections
 from bpemb import BPEmb
 from contextlib import ExitStack
-from typing import List, Dict, Set
+from typing import List, Dict
+from collections import defaultdict
 
 
 FIELD_PAD, FIELD_UNK, FIELD_NULL = '<PAD>', '<UNK>', '<NULL>'
@@ -52,7 +53,7 @@ class Dictionary(object):
             dictionary = torch.load(dict_binpath)
             print("Done")
         elif vocab is not None:
-            assert isinstance(vocab, (str, list))
+            assert isinstance(vocab, (defaultdict, list))
 
             if isinstance(vocab, str):
                 assert os.path.isfile(vocab)

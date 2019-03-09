@@ -37,7 +37,8 @@ def eval_moses_bleu(ref, hyp):
     p = subprocess.Popen(command % (ref, hyp), stdout=subprocess.PIPE, shell=True)
     result = p.communicate()[0].decode("utf-8")
     if result.startswith('BLEU'):
-        return float(result[7:result.index(',')])
+        # return float(result[7:result.index(',')])
+        return result
     else:
         print('Impossible to parse BLEU score! "%s"' % result)
         # logger.warning('Impossible to parse BLEU score! "%s"' % result)
@@ -134,7 +135,8 @@ def main():
             # fout.flush()
 
     print("Evaluating BLEU")
-    eval_moses_bleu(args.ref + 'str.content', args.output + '.content')
+    result = eval_moses_bleu(args.ref + 'str.content', args.output + '.content')
+    print(result)
     # fin.close()
     # fout.close()
 

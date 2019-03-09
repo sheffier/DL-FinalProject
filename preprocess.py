@@ -7,6 +7,7 @@ from contextlib import ExitStack
 from typing import Dict
 from src.data import LabelDict, BpeWordDict, ArticleRawDataset, InfoboxRawDataset,\
                      Article, Infobox, BoxRecord, bpemb_en
+from collections import defaultdict
 
 
 def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb):
@@ -158,7 +159,7 @@ def create_field_label_vocab(in_path, out_path):
         vocab = torch.load(out_path)
     else:
         print("Building vocabulary...")
-        vocab = set()
+        vocab = defaultdict(int)
         bytes_read = 0
         target_bytes = 0
         total_bytes = os.path.getsize(in_path)
@@ -179,13 +180,79 @@ def create_field_label_vocab(in_path, out_path):
                         item)
 
                     if match:
-                        vocab.add(match.group('label'))
+                        vocab[match.group('label')] += 1
 
         print("Saving vocabulary to file...")
         torch.save(vocab, out_path)
 
     print("Field vocab contains %d labels" % len(vocab))
     return vocab
+
+
+def create_mono_datasets(label_dict: LabelDict, bpe):
+    ib_para_ds = {'train': config.PRC_TRAIN_DATA_PATH + "/train.box.bin",
+                   'valid': config.PRC_VALID_DATA_PATH + "/valid.box.bin",
+                   'test': config.PRC_TEST_DATA_PATH + "/test.box.bin"}
+
+    article_para_ds = {'train': config.PRC_TRAIN_DATA_PATH + "/train.article.bin",
+                        'valid': config.PRC_VALID_DATA_PATH + "/valid.article.bin",
+                        'test': config.PRC_TEST_DATA_PATH + "/test.article.bin"}
+
+    all_infoboxes = InfoboxRawDataset(label_dict)
+
+    for name, dataset_path in ib_para_ds.items():
+        assert os.path.isfile(dataset_path)
+
+        boxes_dataset: InfoboxRawDataset = torch.load(dataset_path)
+        all_infoboxes.infoboxes.extend(boxes_dataset.infoboxes)
+        del boxes_dataset
+
+    all_articles = ArticleRawDataset(label_dict)
+
+    for name, dataset_path in article_para_ds.items():
+        assert os.path.isfile(dataset_path)
+
+        articles_dataset: ArticleRawDataset = torch.load(dataset_path)
+        all_articles.articles.extend(articles_dataset.articles)
+        del articles_dataset
+
+    num_entries = len(all_articles.articles)
+    assert num_entries == len(all_infoboxes.infoboxes)
+
+    train_entries = 2 * ((int(num_entries * 0.8) + 1) // 2)
+    valid_entries = (num_entries - train_entries) // 2
+    test_entries = num_entries - valid_entries
+
+    mono_datasets = {'train': {'box': [0, train_entries // 2, config.PRC_TRAIN_DATA_PATH + "/train.box.mono"],
+                               'article': [train_entries // 2, train_entries,
+                                           config.PRC_TRAIN_DATA_PATH + "/train.article.mono"]},
+                     'valid': {'box': [0, valid_entries, config.PRC_VALID_DATA_PATH + "/valid.box.mono"],
+                               'article': [0, valid_entries,
+                                           config.PRC_VALID_DATA_PATH + "/valid.article.mono"]},
+                     'test': {'box': [0, test_entries, config.PRC_TEST_DATA_PATH + "/test.box.mono"],
+                              'article': [0, test_entries,
+                                          config.PRC_TEST_DATA_PATH + "/test.article.mono"]}}
+    start_entry = 0
+
+    for name, info in mono_datasets.items():
+        box_ds = InfoboxRawDataset(label_dict)
+        article_ds = ArticleRawDataset(label_dict)
+
+        box_info = info['box']
+        article_info = info['article']
+        box_ds.infoboxes.extend(all_infoboxes.infoboxes[start_entry + box_info[0]: start_entry + box_info[1]])
+        article_ds.articles.extend(all_articles.articles[start_entry + article_info[0]: start_entry + article_info[1]])
+        start_entry += article_info[1]
+
+        print(name + ": " + "Save mono box dataset as binary")
+        box_ds.dump(box_info[2], bpe)
+        torch.save(box_ds, box_info[2] + '.bin')
+        print(name + ": " + "Save mono article dataset as binary")
+        article_ds.dump(article_info[2], bpe)
+        torch.save(article_ds, article_info[2] + '.bin')
+
+        del box_ds
+        del article_ds
 
 
 def make_dirs():
@@ -218,10 +285,10 @@ if __name__ == '__main__':
     field_dict = LabelDict.get(vocab=field_vocab,
                                dict_binpath=field_dict_path)
 
-    # bpemb_en = BPEmb(lang="en")
     bpe_dict = BpeWordDict.get(vocab=set(bpemb_en.words), dict_binpath=word_dict_path)
 
     prepare_infobox_datasets(field_dict, bpemb_en)
     prepare_articles_dataset(field_dict, bpemb_en)
 
+    create_mono_datasets(field_dict, bpemb_en)
     print("Preprocessing done")
