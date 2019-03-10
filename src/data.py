@@ -53,7 +53,7 @@ class Dictionary(object):
             dictionary = torch.load(dict_binpath)
             print("Done")
         elif vocab is not None:
-            assert isinstance(vocab, (defaultdict, list))
+            assert isinstance(vocab, (str, list))
 
             if isinstance(vocab, str):
                 assert os.path.isfile(vocab)

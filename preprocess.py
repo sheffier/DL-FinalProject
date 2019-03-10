@@ -282,10 +282,10 @@ if __name__ == '__main__':
     word_dict_path = config.PRC_TRAIN_DATA_PATH + "/word.dict"
 
     field_vocab = create_field_label_vocab(box_file_path, field_vocab_path)
-    field_dict = LabelDict.get(vocab=field_vocab,
+    field_dict = LabelDict.get(vocab=list(field_vocab),
                                dict_binpath=field_dict_path)
 
-    bpe_dict = BpeWordDict.get(vocab=set(bpemb_en.words), dict_binpath=word_dict_path)
+    bpe_dict = BpeWordDict.get(vocab=bpemb_en.words, dict_binpath=word_dict_path)
 
     prepare_infobox_datasets(field_dict, bpemb_en)
     prepare_articles_dataset(field_dict, bpemb_en)
