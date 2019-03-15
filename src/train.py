@@ -309,6 +309,7 @@ def main_train():
 
     # Build validators
     src2trg_validators = []
+    trg2src_validators = []
 
     with ExitStack() as stack:
         src_content_vfile = stack.enter_context(open(args.src_valid_corpus + '.content', encoding=args.encoding,
@@ -335,6 +336,8 @@ def main_train():
 
         src2trg_validators.append(Validator(src2trg_translator, src_content, trg_content,
                                             src_labels, trg_labels, args.batch, 0))
+        trg2src_validators.append(Validator(trg2src_translator, trg_content, src_content,
+                                            trg_labels, src_labels, args.batch, 0))
 
     # Build loggers
     loggers = []
@@ -342,7 +345,8 @@ def main_train():
     if args.corpus_mode == 'mono':
         loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, src2trg_validators, None,
                               args.encoding))
-        loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [], None, args.encoding))
+        loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, trg2src_validators, None,
+                              args.encoding))
         loggers.append(Logger('Source to source', src2src_trainer, [], None, args.encoding))
         loggers.append(Logger('Target to target', trg2trg_trainer, [], None, args.encoding))
     elif args.corpus_mode == 'para':
@@ -353,7 +357,7 @@ def main_train():
         # torch.save(src2src_translator, '{0}.{1}.src2src.pth'.format(args.save, name))
         # torch.save(trg2trg_translator, '{0}.{1}.trg2trg.pth'.format(args.save, name))
         torch.save(src2trg_translator, '{0}.{1}.src2trg.pth'.format(args.save, name))
-        # torch.save(trg2src_translator, '{0}.{1}.trg2src.pth'.format(args.save, name))
+        torch.save(trg2src_translator, '{0}.{1}.trg2src.pth'.format(args.save, name))
 
     # Training
     for curr_iter in range(1, args.iterations + 1):

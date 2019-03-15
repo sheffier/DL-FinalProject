@@ -21,6 +21,7 @@ from src.data import bpemb_en
 from nltk.translate.bleu_score import sentence_bleu
 import subprocess
 import os
+import pathlib
 
 
 # BLEU_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tools')
@@ -65,7 +66,7 @@ def main():
     args = parser.parse_args()
 
     # Load model
-    translator = torch.load(args.model)
+    # translator = torch.load(args.model)
 
     # Translate sentences
     end = False
@@ -73,72 +74,69 @@ def main():
     # fin = open(args.input, encoding=args.encoding, errors='surrogateescape')
     # fout = open(args.output, mode='w', encoding=args.encoding, errors='surrogateescape')
 
-    print("Start evaluation...")
+    bleu_res_path = './data/processed_data/bleu_res.txt'
+    with open(bleu_res_path, mode='w', encoding=args.encoding) as bleu_file:
+        currDir = pathlib.Path('.')
+        currPatt = "*MONO*"
 
-    with ExitStack() as stack:
-        fin_content = stack.enter_context(open(args.input + '.content', encoding=args.encoding, errors='surrogateescape'))
-        fin_labels = stack.enter_context(open(args.input + '.labels', encoding=args.encoding, errors='surrogateescape'))
-        fout_content = stack.enter_context(open(args.output + '.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
-        fout_labels = stack.enter_context(open(args.output + '.labels', mode='w', encoding=args.encoding, errors='surrogateescape'))
-        fref_content = stack.enter_context(open(args.ref + '.content', encoding=args.encoding, errors='surrogateescape'))
-        fref_str_content = stack.enter_context(open(args.ref + 'str.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
+        model_files = sorted([currFile for currFile in currDir.glob(currPatt)])
 
+        for model in model_files:
+            translator = torch.load(model)
 
-        bytes_read = 0
-        total_bytes = os.path.getsize(args.input + '.content')
-        target_bytes = 0
+            print("Start evaluation with %s..." % model)
 
-        while not end:
-            content_batch = []
-            labels_batch = []
-            ref_batch = []
-            avg_bleu = 0
-            while len(content_batch) < args.batch_size and not end:
-                content = fin_content.readline()
-                labels = fin_labels.readline()
-                ref = fref_content.readline()
-                content_ids = [int(idstr) for idstr in content.strip().split()]
-                labels_ids = [int(idstr) for idstr in labels.strip().split()]
-                ref_ids = [int(idstr) for idstr in ref.strip().split()]
+            with ExitStack() as stack:
+                fin_content = stack.enter_context(open(args.input + '.content', encoding=args.encoding, errors='surrogateescape'))
+                fin_labels = stack.enter_context(open(args.input + '.labels', encoding=args.encoding, errors='surrogateescape'))
+                fout_content = stack.enter_context(open(args.output + '.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
+                fout_labels = stack.enter_context(open(args.output + '.labels', mode='w', encoding=args.encoding, errors='surrogateescape'))
+                fref_content = stack.enter_context(open(args.ref + '.content', encoding=args.encoding, errors='surrogateescape'))
+                fref_str_content = stack.enter_context(open(args.ref + 'str.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
 
-                if bytes_read >= target_bytes:
-                    print("progress %.3f" % (100.0 * (bytes_read / total_bytes)))
-                    target_bytes += total_bytes // 20
+                bytes_read = 0
+                total_bytes = os.path.getsize(args.input + '.content')
+                target_bytes = 0
 
-                bytes_read += len(content)
+                while not end:
+                    content_batch = []
+                    labels_batch = []
+                    ref_batch = []
+                    while len(content_batch) < args.batch_size and not end:
+                        content = fin_content.readline()
+                        labels = fin_labels.readline()
+                        ref = fref_content.readline()
+                        content_ids = [int(idstr) for idstr in content.strip().split()]
+                        labels_ids = [int(idstr) for idstr in labels.strip().split()]
+                        ref_ids = [int(idstr) for idstr in ref.strip().split()]
 
-                if not content:
-                    end = True
-                else:
-                    content_batch.append(content_ids)
-                    labels_batch.append(labels_ids)
-                    ref_batch.append(ref_ids)
-            if args.beam_size <= 0 and len(content_batch) > 0:
-                for idx, (w_translation, f_translation) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
-                    w_str_trans = bpemb_en.decode_ids(w_translation)
-                    f_str_trans = " ".join([translator.trg_field_dict.id2word[idx] for idx in f_translation])
-                    ref_str = bpemb_en.decode_ids(ref_batch[idx])
-                    fout_content.write(w_str_trans + '\n')
-                    fout_labels.write(f_str_trans + '\n')
-                    fref_str_content.write(ref_str + '\n')
-                    # print(w_str_trans.encode('utf-8'))
-                    # print(ref_str.encode('utf-8'))
-                    # print('BLEU-4: %f' % (100 * sentence_bleu([ref_str.split()], w_str_trans.split())))
-                    # avg_bleu += (100.0 * sentence_bleu([ref_str.split()], w_str_trans.split()))
-                # avg_bleu /= len(content_batch)
-                # print("avg_bleu %f" % avg_bleu)
-            elif len(content_batch) > 0:
-                pass
-                # for translation in translator.beam_search(batch, train=False, beam_size=args.beam_size):
-                #     print(translation, file=fout)
+                        if bytes_read >= target_bytes:
+                            print("progress %.3f" % (100.0 * (bytes_read / total_bytes)))
+                            target_bytes += total_bytes // 20
 
-            # fout.flush()
+                        bytes_read += len(content)
 
-    print("Evaluating BLEU")
-    result = eval_moses_bleu(args.ref + 'str.content', args.output + '.content')
-    print(result)
-    # fin.close()
-    # fout.close()
+                        if not content:
+                            end = True
+                        else:
+                            content_batch.append(content_ids)
+                            labels_batch.append(labels_ids)
+                            ref_batch.append(ref_ids)
+                    if args.beam_size <= 0 and len(content_batch) > 0:
+                        for idx, (w_translation, f_translation) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
+                            w_str_trans = bpemb_en.decode_ids(w_translation)
+                            f_str_trans = " ".join([translator.trg_field_dict.id2word[idx] for idx in f_translation])
+                            ref_str = bpemb_en.decode_ids(ref_batch[idx])
+                            fout_content.write(w_str_trans + '\n')
+                            fout_labels.write(f_str_trans + '\n')
+                            fref_str_content.write(ref_str + '\n')
+                    elif len(content_batch) > 0:
+                        pass
+
+            print("Evaluating BLEU")
+            result = eval_moses_bleu(args.ref + 'str.content', args.output + '.content')
+            print(result)
+            bleu_file.write(str(model) + ': ' + result + '\n')
 
 
 if __name__ == '__main__':
