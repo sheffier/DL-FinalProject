@@ -69,7 +69,6 @@ def main():
     # translator = torch.load(args.model)
 
     # Translate sentences
-    end = False
 
     # fin = open(args.input, encoding=args.encoding, errors='surrogateescape')
     # fout = open(args.output, mode='w', encoding=args.encoding, errors='surrogateescape')
@@ -97,6 +96,7 @@ def main():
                 bytes_read = 0
                 total_bytes = os.path.getsize(args.input + '.content')
                 target_bytes = 0
+                end = False
 
                 while not end:
                     content_batch = []
