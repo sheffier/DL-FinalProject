@@ -48,13 +48,40 @@ def eval_moses_bleu(ref, hyp):
         return -1
 
 
-def trans(args, model):
+def load_model(model, device): 
+    translator = torch.load(model)
+    translator.device = device
+    translator.encoder_word_embeddings.to(device)
+    translator.decoder_word_embeddings.to(device)
+    translator.encoder_field_embeddings.to(device)
+    translator.decoder_field_embeddings.to(device)
+    translator.generator.to(device)
+    translator.encoder.to(device)
+    translator.decoder.to(device)
+    translator.word_criterion.to(device)
+    translator.field_criterion.to(device)
+
+    return translator
+
+
+def trans(args, model, is_cpu, que):
+    if is_cpu:
+        device = 'cpu'
+    else:
+        device = que.get()
+
+    pid = os.getpid()
+
     model_it = re.search(r".it(?P<it>[\d]*)", str(model)).group('it')
     args.output = args.output + '.' + model_it
 
-    translator = torch.load(model)
+    print("[PID %d | it %s] Start evaluation model %s on device %s" % (pid, model_it, str(model), device))
+
+
+    translator = load_model(model, device)
+    print("[PID %d | it %s] Verify device %s" % (pid, model_it, translator.device))
+    
     args.output = args.output + ''
-    print("Start evaluation with %s..." % str(model))
 
     with ExitStack() as stack:
         fin_content = stack.enter_context(open(args.input + '.content', encoding=args.encoding, errors='surrogateescape'))
@@ -77,7 +104,7 @@ def trans(args, model):
                 labels_ids = [int(idstr) for idstr in labels.strip().split()]
 
                 if bytes_read >= target_bytes:
-                    print("progress %.3f" % (100.0 * (bytes_read / total_bytes)))
+                    print("[PID %d | it %s] progress %.3f" % (pid, model_it, 100.0 * (bytes_read / total_bytes)))
                     target_bytes += total_bytes // 20
 
                 bytes_read += len(content)
@@ -96,9 +123,12 @@ def trans(args, model):
             elif len(content_batch) > 0:
                 pass
 
-    print("[%s] Evaluating BLEU" % (str(model)))
+    if not is_cpu:
+        que.put(device)
+
+    print("[PID %d | it %s] Evaluating BLEU" % (pid, model_it))
     result = eval_moses_bleu(args.ref + '.str.last.content', args.output + '.content')
-    print("[%s] Done" % (str(model)))
+    print("[PID %d | it %s] Done" % (pid, model_it))
 
     return int(model_it), str(model) + ': ' + result + '\n'
 
@@ -116,6 +146,7 @@ def main():
                         help='the output file')
     parser.add_argument('--ref', type=str, default='./data/processed_data/valid/valid.article',
                         help='the reference file')
+    parser.add_argument('--is_cpu', action='store_true')
 
     args = parser.parse_args()
 
@@ -125,12 +156,25 @@ def main():
     model_files = sorted([currFile for currFile in currDir.glob(currPatt)],
                          key=lambda x: int(re.search(r".it(?P<it>[\d]*)", str(x)).group('it')))
 
-    max_processes = mp.cpu_count()
+    if args.is_cpu:
+        max_processes = 10
+    else:
+        max_processes = 4
+
     pool = mp.Pool(processes=max_processes)
-    results = [pool.apply_async(trans, args=(args, model)) for model in model_files]
+    m = mp.Manager()
+    q = m.Queue()
+
+    if not args.is_cpu:
+        q.put('cuda:0')
+        q.put('cuda:1')
+        q.put('cuda:5')
+        q.put('cuda:6')
+
+    results = [pool.apply_async(trans, args=(args, model, args.is_cpu, q)) for model in model_files]
     pool_outs = sorted([p.get() for p in results], key=lambda res: res[0])
 
-    bleu_res_path = './data/processed_data/bleu_res.txt'
+    bleu_res_path = './data/processed_data/bleu_res_new.txt'
     with open(bleu_res_path, mode='w', encoding=args.encoding) as bleu_file:
         for pool_out in pool_outs:
             bleu_file.write(pool_out[1])
