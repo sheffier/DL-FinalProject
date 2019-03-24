@@ -217,7 +217,7 @@ def main_train():
     if args.shared_enc_dec:
         trg_enc = src_enc
     else:
-        src_enc = RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
+        trg_enc = RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
                              hidden_size=args.hidden, bidirectional=not args.disable_bidirectional,
                              layers=args.layers, dropout=args.dropout).to(device)
 
