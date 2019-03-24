@@ -75,19 +75,24 @@ def trans(args, model, is_cpu, que):
     model_it = re.search(r".it(?P<it>[\d]*)", str(model)).group('it')
     args.output = args.output + '.' + model_it
 
-    print("[PID %d | it %s] Start evaluation model %s on device %s" % (pid, model_it, str(model), device))
+    print("[DEVICE %s | PID %d | it %s] Start evaluation model %s on device %s" % (device, pid, model_it, str(model), device))
 
 
     translator = load_model(model, device)
-    print("[PID %d | it %s] Verify device %s" % (pid, model_it, translator.device))
+    print("[DEVICE %s | PID %d | it %s] Verify device %s" % (device, pid, model_it, translator.device))
     
     args.output = args.output + ''
+    create_ref_file = (device == 'cuda:0') and (not os.path.isfile(args.ref + '.str.content'))
 
     with ExitStack() as stack:
         fin_content = stack.enter_context(open(args.input + '.content', encoding=args.encoding, errors='surrogateescape'))
         fin_labels = stack.enter_context(open(args.input + '.labels', encoding=args.encoding, errors='surrogateescape'))
         fout_content = stack.enter_context(open(args.output + '.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
         fout_labels = stack.enter_context(open(args.output + '.labels', mode='w', encoding=args.encoding, errors='surrogateescape'))
+        if create_ref_file:
+            print("[DEVICE %s | PID %d | it %s] creating ref file" % (device, pid, model_it))
+            fref_content = stack.enter_context(open(args.ref + '.content', encoding=args.encoding, errors='surrogateescape'))
+            fref_str_content = stack.enter_context(open(args.ref + '.str.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
 
         bytes_read = 0
         total_bytes = os.path.getsize(args.input + '.content')
@@ -97,14 +102,19 @@ def trans(args, model, is_cpu, que):
         while not end:
             content_batch = []
             labels_batch = []
+            ref_batch = []
             while len(content_batch) < args.batch_size and not end:
                 content = fin_content.readline()
                 labels = fin_labels.readline()
                 content_ids = [int(idstr) for idstr in content.strip().split()]
                 labels_ids = [int(idstr) for idstr in labels.strip().split()]
 
+                if create_ref_file:
+                    ref = fref_content.readline()
+                    ref_ids = [int(idstr) for idstr in ref.strip().split()]
+
                 if bytes_read >= target_bytes:
-                    print("[PID %d | it %s] progress %.3f" % (pid, model_it, 100.0 * (bytes_read / total_bytes)))
+                    print("[DEVICE %s | PID %d | it %s] progress %.3f" % (device, pid, model_it, 100.0 * (bytes_read / total_bytes)))
                     target_bytes += total_bytes // 20
 
                 bytes_read += len(content)
@@ -114,21 +124,29 @@ def trans(args, model, is_cpu, que):
                 else:
                     content_batch.append(content_ids)
                     labels_batch.append(labels_ids)
+
+                    if create_ref_file:
+                        ref_batch.append(ref_ids)
+
             if args.beam_size <= 0 and len(content_batch) > 0:
                 for idx, (w_translation, f_translation) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
                     w_str_trans = bpemb_en.decode_ids(w_translation)
                     f_str_trans = " ".join([translator.trg_field_dict.id2word[idx] for idx in f_translation])
                     fout_content.write(w_str_trans + '\n')
                     fout_labels.write(f_str_trans + '\n')
+
+                    if create_ref_file:
+                        ref_str = bpemb_en.decode_ids(ref_batch[idx])
+                        fref_str_content.write(ref_str + '\n')
             elif len(content_batch) > 0:
                 pass
 
     if not is_cpu:
         que.put(device)
 
-    print("[PID %d | it %s] Evaluating BLEU" % (pid, model_it))
-    result = eval_moses_bleu(args.ref + '.str.last.content', args.output + '.content')
-    print("[PID %d | it %s] Done" % (pid, model_it))
+    print("[DEVICE %s | PID %d | it %s] Evaluating BLEU" % (device, pid, model_it))
+    result = eval_moses_bleu(args.ref + '.str.content', args.output + '.content')
+    print("[DEVICE %s | PID %d | it %s] Done" % (device, pid, model_it))
 
     return int(model_it), str(model) + ': ' + result + '\n'
 
@@ -136,7 +154,7 @@ def trans(args, model, is_cpu, que):
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Translate using a pre-trained model')
-    parser.add_argument('model', help='a model previously trained with train.py')
+    parser.add_argument('--model', type=str, default='', help='a model previously trained with train.py')
     parser.add_argument('--batch_size', type=int, default=50, help='the batch size (defaults to 50)')
     parser.add_argument('--beam_size', type=int, default=0, help='the beam size (defaults to 12, 0 for greedy search)')
     parser.add_argument('--encoding', default='utf-8', help='the character encoding for input/output (defaults to utf-8)')
@@ -153,8 +171,13 @@ def main():
     currDir = pathlib.Path('.')
     currPatt = "*MONO*"
 
-    model_files = sorted([currFile for currFile in currDir.glob(currPatt)],
-                         key=lambda x: int(re.search(r".it(?P<it>[\d]*)", str(x)).group('it')))
+    if args.model == '':
+        model_files = sorted([currFile for currFile in currDir.glob(currPatt)],
+                             key=lambda x: int(re.search(r".it(?P<it>[\d]*)", str(x)).group('it')))
+    else:
+        model_files = [args.model]
+
+    print("Number of models: %d" % (len(model_files)))
 
     if args.is_cpu:
         max_processes = 10
@@ -167,7 +190,7 @@ def main():
 
     if not args.is_cpu:
         q.put('cuda:0')
-        q.put('cuda:1')
+        q.put('cuda:3')
         q.put('cuda:5')
         q.put('cuda:6')
 

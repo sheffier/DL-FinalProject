@@ -30,7 +30,8 @@ SPECIAL_FIELD_SYMS = 3
 BPE_UNK, BPE_BOS, BPE_EOS, WORD_PAD, WORD_SOT = '<unk>', '<s>', '</s>', '<pad>', '<sot>'
 SPECIAL_WORD_SYMS = 5
 
-bpemb_en = BPEmb(lang="en")
+# bpemb_en = BPEmb(lang="en")
+bpemb_en = BPEmb(lang="en", vs=200000, dim=300)
 
 
 class Dictionary(object):

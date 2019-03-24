@@ -26,13 +26,15 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb):
                                'valid': config.PRC_VALID_DATA_PATH + "/valid.article",
                                'test': config.PRC_TEST_DATA_PATH + "/test.article"}
 
-    for name, articles_dataset in articles_datasets.items():
+    for name in articles_datasets.keys():
         if os.path.isfile(article_processed_paths[name] + '.bin'):
             print("Loading %s Article dataset from %s ..." % (name, article_processed_paths[name] + '.bin'))
-            articles_dataset = torch.load(article_processed_paths[name] + '.bin')
-            print("Dataset contains %d articles" % len(articles_dataset.articles))
+            # articles_dataset = torch.load(article_processed_paths[name] + '.bin')
+            articles_datasets[name] = torch.load(article_processed_paths[name] + '.bin')
+            print("Dataset contains %d articles" % len(articles_datasets[name].articles))
         else:
-            articles_dataset = ArticleRawDataset(label_dict)
+            articles_datasets[name] = ArticleRawDataset(label_dict)
+            # articles_dataset = ArticleRawDataset(label_dict)
 
             print("Preprocessing %s articles" % name)
 
@@ -59,17 +61,19 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb):
 
                         article.add_sentence(sentence)
 
-                    articles_dataset.add_article(article)
+                    articles_datasets[name].add_article(article)
 
             print("Save articles dataset as binary")
-            torch.save(articles_dataset, article_processed_paths[name] + '.bin')
+            torch.save(articles_datasets[name], article_processed_paths[name] + '.bin')
 
         if os.path.isfile(article_processed_paths[name] + '.content') is False:
-            articles_dataset.dump(article_processed_paths[name], bpe)
+            articles_datasets[name].dump(article_processed_paths[name], bpe)
         if os.path.isfile(article_processed_paths[name] + '.shuffle.content') is False:
-            articles_dataset.dump(article_processed_paths[name] + '.shuffle', bpe, shuffle=1)
+            articles_datasets[name].dump(article_processed_paths[name] + '.shuffle', bpe, shuffle=1)
 
-        print("Finished preprocessing. %s dataset has %d articles" % (name, len(articles_dataset.articles)))
+        print("Finished preprocessing. %s dataset has %d articles" % (name, len(articles_datasets[name].articles)))
+
+    return articles_datasets
 
 
 def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
@@ -85,13 +89,15 @@ def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
                           'valid': config.PRC_VALID_DATA_PATH + "/valid.box",
                           'test': config.PRC_TEST_DATA_PATH + "/test.box"}
 
-    for name, boxes_dataset in ib_datasets.items():
+    for name in ib_datasets.keys():
         if os.path.isfile(ib_processed_paths[name] + '.bin'):
             print("Loading %s Infobox dataset from %s ..." % (name, ib_processed_paths[name] + '.bin'))
-            boxes_dataset = torch.load(ib_processed_paths[name] + '.bin')
-            print("Dataset contains %d boxes" % len(boxes_dataset.infoboxes))
+            ib_datasets[name] = torch.load(ib_processed_paths[name] + '.bin')
+            # boxes_dataset = torch.load(ib_processed_paths[name] + '.bin')
+            print("Dataset contains %d boxes" % len(ib_datasets[name].infoboxes))
         else:
-            boxes_dataset = InfoboxRawDataset(label_dict)
+            ib_datasets[name] = InfoboxRawDataset(label_dict)
+            # boxes_dataset = InfoboxRawDataset(label_dict)
 
             print("Preprocessing %s boxes" % name)
 
@@ -138,17 +144,17 @@ def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
                     if len(box_record.content) != 0:
                         infobox.add_record(box_record)
 
-                    boxes_dataset.add_infobox(infobox)
+                    ib_datasets[name].add_infobox(infobox)
 
             print("Save box dataset as binary")
-            torch.save(boxes_dataset, ib_processed_paths[name] + '.bin')
+            torch.save(ib_datasets[name], ib_processed_paths[name] + '.bin')
 
         if os.path.isfile(ib_processed_paths[name] + '.content') is False:
-            boxes_dataset.dump(ib_processed_paths[name], bpe)
+            ib_datasets[name].dump(ib_processed_paths[name], bpe)
         if os.path.isfile(ib_processed_paths[name] + '.shuffle.content') is False:
-            boxes_dataset.dump(ib_processed_paths[name] + '.shuffle', bpe, shuffle=2)
+            ib_datasets[name].dump(ib_processed_paths[name] + '.shuffle', bpe, shuffle=2)
 
-        print("Finished preprocessing. %s dataset has %d boxes" % (name, len(boxes_dataset.infoboxes)))
+        print("Finished preprocessing. %s dataset has %d boxes" % (name, len(ib_datasets[name].infoboxes)))
 
     return ib_datasets
 
@@ -287,8 +293,8 @@ if __name__ == '__main__':
 
     bpe_dict = BpeWordDict.get(vocab=bpemb_en.words, dict_binpath=word_dict_path)
 
-    prepare_infobox_datasets(field_dict, bpemb_en)
-    prepare_articles_dataset(field_dict, bpemb_en)
+    infobox_ds = prepare_infobox_datasets(field_dict, bpemb_en)
+    articles_ds = prepare_articles_dataset(field_dict, bpemb_en)
 
     create_mono_datasets(field_dict, bpemb_en)
     print("Preprocessing done")

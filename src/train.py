@@ -142,7 +142,7 @@ def main_train():
 
     # Select device
     if torch.cuda.is_available():
-        device = torch.device('cuda')
+        device = torch.device('cuda:7')
     else:
         device = torch.device('cpu')
 
@@ -311,41 +311,42 @@ def main_train():
     src2trg_validators = []
     trg2src_validators = []
 
-    with ExitStack() as stack:
-        src_content_vfile = stack.enter_context(open(args.src_valid_corpus + '.content', encoding=args.encoding,
-                                                     errors='surrogateescape'))
-        src_labels_vfile = stack.enter_context(open(args.src_valid_corpus + '.labels', encoding=args.encoding,
-                                                    errors='surrogateescape'))
-        trg_content_vfile = stack.enter_context(open(args.trg_valid_corpus + '.content', encoding=args.encoding,
-                                                     errors='surrogateescape'))
-        trg_labels_vfile = stack.enter_context(open(args.trg_valid_corpus + '.labels', encoding=args.encoding,
-                                                    errors='surrogateescape'))
+    if 0:
+        with ExitStack() as stack:
+            src_content_vfile = stack.enter_context(open(args.src_valid_corpus + '.content', encoding=args.encoding,
+                                                         errors='surrogateescape'))
+            src_labels_vfile = stack.enter_context(open(args.src_valid_corpus + '.labels', encoding=args.encoding,
+                                                        errors='surrogateescape'))
+            trg_content_vfile = stack.enter_context(open(args.trg_valid_corpus + '.content', encoding=args.encoding,
+                                                         errors='surrogateescape'))
+            trg_labels_vfile = stack.enter_context(open(args.trg_valid_corpus + '.labels', encoding=args.encoding,
+                                                        errors='surrogateescape'))
 
-        src_content = src_content_vfile.readlines()
-        src_labels = src_labels_vfile.readlines()
-        trg_content = trg_content_vfile.readlines()
-        trg_labels = trg_labels_vfile.readlines()
-        if len(src_content) != len(trg_content) != len(src_labels) != len(trg_labels):
-            print('Validation sizes do not match')
-            sys.exit(-1)
+            src_content = src_content_vfile.readlines()
+            src_labels = src_labels_vfile.readlines()
+            trg_content = trg_content_vfile.readlines()
+            trg_labels = trg_labels_vfile.readlines()
+            if len(src_content) != len(trg_content) != len(src_labels) != len(trg_labels):
+                print('Validation sizes do not match')
+                sys.exit(-1)
 
-        src_content = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), src_content))
-        src_labels = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), src_labels))
-        trg_content = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), trg_content))
-        trg_labels = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), trg_labels))
+            src_content = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), src_content))
+            src_labels = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), src_labels))
+            trg_content = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), trg_content))
+            trg_labels = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), trg_labels))
 
-        src2trg_validators.append(Validator(src2trg_translator, src_content, trg_content,
-                                            src_labels, trg_labels, args.batch, 0))
-        trg2src_validators.append(Validator(trg2src_translator, trg_content, src_content,
-                                            trg_labels, src_labels, args.batch, 0))
+            src2trg_validators.append(Validator(src2trg_translator, src_content, trg_content,
+                                                src_labels, trg_labels, args.batch, 0))
+            trg2src_validators.append(Validator(trg2src_translator, trg_content, src_content,
+                                                trg_labels, src_labels, args.batch, 0))
 
     # Build loggers
     loggers = []
 
     if args.corpus_mode == 'mono':
-        loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, src2trg_validators, None,
+        loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, [], None,
                               args.encoding))
-        loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, trg2src_validators, None,
+        loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [], None,
                               args.encoding))
         loggers.append(Logger('Source to source', src2src_trainer, [], None, args.encoding))
         loggers.append(Logger('Target to target', trg2trg_trainer, [], None, args.encoding))
@@ -357,7 +358,8 @@ def main_train():
         # torch.save(src2src_translator, '{0}.{1}.src2src.pth'.format(args.save, name))
         # torch.save(trg2trg_translator, '{0}.{1}.trg2trg.pth'.format(args.save, name))
         torch.save(src2trg_translator, '{0}.{1}.src2trg.pth'.format(args.save, name))
-        torch.save(trg2src_translator, '{0}.{1}.trg2src.pth'.format(args.save, name))
+        if args.corpus_mode == 'mono':
+            torch.save(trg2src_translator, '{0}.{1}.trg2src.pth'.format(args.save, name))
 
     # Training
     for curr_iter in range(1, args.iterations + 1):
