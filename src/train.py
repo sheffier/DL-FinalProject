@@ -104,7 +104,7 @@ def main_train():
 
     # Other
     parser.add_argument('--encoding', default='utf-8', help='the character encoding for input/output (defaults to utf-8)')
-    parser.add_argument('--cuda', default=False, action='store_true', help='use cuda')
+    parser.add_argument('--cuda', type=str, default='cuda:0')
 
     # Parse arguments
     args = parser.parse_args()
@@ -144,7 +144,7 @@ def main_train():
 
     # Select device
     if torch.cuda.is_available():
-        device = torch.device('cuda:7')
+        device = torch.device(args.cuda)
     else:
         device = torch.device('cpu')
 
@@ -211,8 +211,8 @@ def main_train():
 
     # Build encoder
     src_enc = RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
-                                hidden_size=args.hidden, bidirectional=not args.disable_bidirectional,
-                                layers=args.layers, dropout=args.dropout).to(device)
+                         hidden_size=args.hidden, bidirectional=not args.disable_bidirectional,
+                         layers=args.layers, dropout=args.dropout).to(device)
 
     if args.shared_enc_dec:
         trg_enc = src_enc
