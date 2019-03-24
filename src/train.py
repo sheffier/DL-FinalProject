@@ -75,6 +75,8 @@ def main_train():
     architecture_group.add_argument('--disable_denoising', action='store_true', help='disable random swaps')
     architecture_group.add_argument('--disable_backtranslation', action='store_true', help='disable backtranslation')
     architecture_group.add_argument('--disable_field_loss', action='store_true', help='disable backtranslation')
+    architecture_group.add_argument('--shared_enc_dec', action='store_true', help='share enc/dec for both directions')
+
 
     # Optimization
     optimization_group = parser.add_argument_group('optimization', 'Optimization related arguments')
@@ -196,26 +198,51 @@ def main_train():
     trg_decoder_field_embeddings = field_embeddings
 
     src_generator = LinearGenerator(args.hidden, len(word_dict), len(field_dict)).to(device)
-    trg_generator = LinearGenerator(args.hidden, len(word_dict), len(field_dict)).to(device)
+
+    if args.shared_enc_dec:
+        trg_generator = src_generator
+    else:
+        trg_generator = LinearGenerator(args.hidden, len(word_dict), len(field_dict)).to(device)
+
     logger.debug('src generator is running on cuda: %d', next(src_generator.parameters()).is_cuda)
     logger.debug('trg generator is running on cuda: %d', next(src_generator.parameters()).is_cuda)
     add_optimizer(src_generator, (src2src_optimizers, trg2src_optimizers))
     add_optimizer(trg_generator, (trg2trg_optimizers, src2trg_optimizers))
 
     # Build encoder
-    encoder = RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
+    src_enc = RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
                                 hidden_size=args.hidden, bidirectional=not args.disable_bidirectional,
                                 layers=args.layers, dropout=args.dropout).to(device)
-    logger.debug('encoder model is running on cuda: %d', next(encoder.parameters()).is_cuda)
-    add_optimizer(encoder, (src2src_optimizers, trg2trg_optimizers, src2trg_optimizers, trg2src_optimizers))
+
+    if args.shared_enc_dec:
+        trg_enc = src_enc
+    else:
+        src_enc = RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
+                             hidden_size=args.hidden, bidirectional=not args.disable_bidirectional,
+                             layers=args.layers, dropout=args.dropout).to(device)
+
+    logger.debug('encoder model is running on cuda: %d', next(src_enc.parameters()).is_cuda)
+
+    add_optimizer(src_enc, (src2src_optimizers, src2trg_optimizers))
+    add_optimizer(trg_enc, (trg2trg_optimizers, trg2src_optimizers))
 
     # Build decoders
-    decoder = RNNAttentionDecoder(word_embedding_size=word_embedding_size,
-                                         field_embedding_size=field_embedding_size, hidden_size=args.hidden,
-                                         layers=args.layers, dropout=args.dropout, input_feeding=False).to(device)
-    logger.debug('decoder model is running on cuda: %d', next(decoder.parameters()).is_cuda)
-    logger.debug('attention model is running on cuda: %d', next(decoder.attention.parameters()).is_cuda)
-    add_optimizer(decoder, (src2src_optimizers, trg2trg_optimizers, src2trg_optimizers, trg2src_optimizers))
+    src_dec = RNNAttentionDecoder(word_embedding_size=word_embedding_size,
+                                  field_embedding_size=field_embedding_size, hidden_size=args.hidden,
+                                  layers=args.layers, dropout=args.dropout, input_feeding=False).to(device)
+
+    if args.shared_enc_dec:
+        trg_dec = src_dec
+    else:
+        trg_dec = RNNAttentionDecoder(word_embedding_size=word_embedding_size,
+                                      field_embedding_size=field_embedding_size, hidden_size=args.hidden,
+                                      layers=args.layers, dropout=args.dropout, input_feeding=False).to(device)
+
+    logger.debug('decoder model is running on cuda: %d', next(src_dec.parameters()).is_cuda)
+    logger.debug('attention model is running on cuda: %d', next(src_dec.attention.parameters()).is_cuda)
+
+    add_optimizer(src_dec, (src2src_optimizers, trg2src_optimizers))
+    add_optimizer(trg_dec, (trg2trg_optimizers, src2trg_optimizers))
 
     # Build translators
     src2src_translator = Translator("src2src",
@@ -227,7 +254,7 @@ def main_train():
                                     src_word_dict=word_dict, trg_word_dict=word_dict,
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=src_type, trg_type=src_type,
-                                    encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[src_type],
+                                    encoder=src_enc, decoder=src_dec, w_sos_id=w_sos_id[src_type],
                                     denoising=not args.disable_denoising, device=device)
     src2trg_translator = Translator("src2trg",
                                     encoder_word_embeddings=src_encoder_word_embeddings,
@@ -238,7 +265,7 @@ def main_train():
                                     src_word_dict=word_dict, trg_word_dict=word_dict,
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=src_type, trg_type=trg_type,
-                                    encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[trg_type],
+                                    encoder=src_enc, decoder=trg_dec, w_sos_id=w_sos_id[trg_type],
                                     denoising=False, device=device)
     trg2trg_translator = Translator("trg2trg",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
@@ -249,7 +276,7 @@ def main_train():
                                     src_word_dict=word_dict, trg_word_dict=word_dict,
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=trg_type, trg_type=trg_type,
-                                    encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[trg_type],
+                                    encoder=trg_enc, decoder=trg_dec, w_sos_id=w_sos_id[trg_type],
                                     denoising=not args.disable_denoising, device=device)
     trg2src_translator = Translator("trg2src",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
@@ -260,7 +287,7 @@ def main_train():
                                     src_word_dict=word_dict, trg_word_dict=word_dict,
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=trg_type, trg_type=src_type,
-                                    encoder=encoder, decoder=decoder, w_sos_id=w_sos_id[src_type],
+                                    encoder=trg_enc, decoder=src_dec, w_sos_id=w_sos_id[src_type],
                                     denoising=False, device=device)
 
     # Build trainers
