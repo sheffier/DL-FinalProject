@@ -48,13 +48,13 @@ class RNNEncoder(nn.Module):
         f_embeddings = field_embeddings(field_ids)  # + self.special_embeddings(data.special_ids(word_ids))
         embeddings = torch.cat([w_embeddings, f_embeddings], 2)   # ????
         if is_varlen:
-            embeddings = nn.utils.rnn.pack_padded_sequence(embeddings, lengths, batch_first=False)
+            embeddings = nn.utils.rnn.pack_padded_sequence(embeddings, lengths, batch_first=self.batch_first)
 
         output, hidden = self.rnn(embeddings, hidden)
         if self.bidirectional:
             hidden = torch.stack([torch.cat((hidden[2*i], hidden[2*i+1]), dim=1) for i in range(self.layers)])
         if is_varlen:
-            output = nn.utils.rnn.pad_packed_sequence(output)[0]
+            output = nn.utils.rnn.pad_packed_sequence(output, batch_first=self.batch_first)[0]
         if not is_sorted:
             hidden = torch.stack([hidden[:, i, :] for i in sorted2true], dim=1)
             output = torch.stack([output[:, i, :] for i in sorted2true], dim=1)
