@@ -75,7 +75,8 @@ def main_train():
     architecture_group.add_argument('--disable_denoising', action='store_true', help='disable random swaps')
     architecture_group.add_argument('--disable_backtranslation', action='store_true', help='disable backtranslation')
     architecture_group.add_argument('--disable_field_loss', action='store_true', help='disable backtranslation')
-    architecture_group.add_argument('--shared_enc_dec', action='store_true', help='share enc/dec for both directions')
+    architecture_group.add_argument('--shared_enc', action='store_true', help='share enc for both directions')
+    architecture_group.add_argument('--shared_dec', action='store_true', help='share dec for both directions')
 
 
     # Optimization
@@ -199,7 +200,7 @@ def main_train():
 
     src_generator = LinearGenerator(args.hidden, len(word_dict), len(field_dict)).to(device)
 
-    if args.shared_enc_dec:
+    if args.shared_dec:
         trg_generator = src_generator
     else:
         trg_generator = LinearGenerator(args.hidden, len(word_dict), len(field_dict)).to(device)
@@ -214,7 +215,7 @@ def main_train():
                          hidden_size=args.hidden, bidirectional=not args.disable_bidirectional,
                          layers=args.layers, dropout=args.dropout).to(device)
 
-    if args.shared_enc_dec:
+    if args.shared_enc:
         trg_enc = src_enc
     else:
         trg_enc = RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
@@ -231,7 +232,7 @@ def main_train():
                                   field_embedding_size=field_embedding_size, hidden_size=args.hidden,
                                   layers=args.layers, dropout=args.dropout, input_feeding=False).to(device)
 
-    if args.shared_enc_dec:
+    if args.shared_dec:
         trg_dec = src_dec
     else:
         trg_dec = RNNAttentionDecoder(word_embedding_size=word_embedding_size,
