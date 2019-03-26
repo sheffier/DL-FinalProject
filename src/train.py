@@ -202,13 +202,14 @@ def main_train():
 
     if args.shared_dec:
         trg_generator = src_generator
+        add_optimizer(src_generator, (src2src_optimizers, trg2src_optimizers, trg2trg_optimizers, src2trg_optimizers))
     else:
         trg_generator = LinearGenerator(args.hidden, len(word_dict), len(field_dict)).to(device)
+        add_optimizer(src_generator, (src2src_optimizers, trg2src_optimizers))
+        add_optimizer(trg_generator, (trg2trg_optimizers, src2trg_optimizers))
 
     logger.debug('src generator is running on cuda: %d', next(src_generator.parameters()).is_cuda)
     logger.debug('trg generator is running on cuda: %d', next(src_generator.parameters()).is_cuda)
-    add_optimizer(src_generator, (src2src_optimizers, trg2src_optimizers))
-    add_optimizer(trg_generator, (trg2trg_optimizers, src2trg_optimizers))
 
     # Build encoder
     src_enc = RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
@@ -217,15 +218,15 @@ def main_train():
 
     if args.shared_enc:
         trg_enc = src_enc
+        add_optimizer(src_enc, (src2src_optimizers, src2trg_optimizers, trg2trg_optimizers, trg2src_optimizers))
     else:
         trg_enc = RNNEncoder(word_embedding_size=word_embedding_size, field_embedding_size=field_embedding_size,
                              hidden_size=args.hidden, bidirectional=not args.disable_bidirectional,
                              layers=args.layers, dropout=args.dropout).to(device)
+        add_optimizer(src_enc, (src2src_optimizers, src2trg_optimizers))
+        add_optimizer(trg_enc, (trg2trg_optimizers, trg2src_optimizers))
 
     logger.debug('encoder model is running on cuda: %d', next(src_enc.parameters()).is_cuda)
-
-    add_optimizer(src_enc, (src2src_optimizers, src2trg_optimizers))
-    add_optimizer(trg_enc, (trg2trg_optimizers, trg2src_optimizers))
 
     # Build decoders
     src_dec = RNNAttentionDecoder(word_embedding_size=word_embedding_size,
@@ -234,16 +235,16 @@ def main_train():
 
     if args.shared_dec:
         trg_dec = src_dec
+        add_optimizer(src_dec, (src2src_optimizers, trg2src_optimizers, trg2trg_optimizers, src2trg_optimizers))
     else:
         trg_dec = RNNAttentionDecoder(word_embedding_size=word_embedding_size,
                                       field_embedding_size=field_embedding_size, hidden_size=args.hidden,
                                       layers=args.layers, dropout=args.dropout, input_feeding=False).to(device)
+        add_optimizer(src_dec, (src2src_optimizers, trg2src_optimizers))
+        add_optimizer(trg_dec, (trg2trg_optimizers, src2trg_optimizers))
 
     logger.debug('decoder model is running on cuda: %d', next(src_dec.parameters()).is_cuda)
     logger.debug('attention model is running on cuda: %d', next(src_dec.attention.parameters()).is_cuda)
-
-    add_optimizer(src_dec, (src2src_optimizers, trg2src_optimizers))
-    add_optimizer(trg_dec, (trg2trg_optimizers, src2trg_optimizers))
 
     # Build translators
     src2src_translator = Translator("src2src",
