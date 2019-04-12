@@ -29,6 +29,7 @@ from src.data import BpeWordDict, LabelDict
 from src.data import bpemb_en
 from torch import nn
 from contextlib import ExitStack
+from preprocess import preprocess
 
 
 
@@ -54,12 +55,8 @@ def main_train():
 
     # Embeddings/vocabulary
     embedding_group = parser.add_argument_group('embeddings', 'Embedding related arguments; either give pre-trained embeddings, or a vocabulary and embedding dimensionality to randomly initialize them')
-    embedding_group.add_argument('--word_embeddings', help='table / sentence content embedding')
-    embedding_group.add_argument('--field_embeddings', help='field labels embedding')
-    embedding_group.add_argument('--word_vocabulary', help='table / sentences content vocabulary')
-    embedding_group.add_argument('--field_vocabulary', help='field labels vocabulary')
-    embedding_group.add_argument('--word_embedding_size', type=int, default=0, help='the word embedding size')
-    embedding_group.add_argument('--field_embedding_size', type=int, default=0, help='the word embedding size')
+    embedding_group.add_argument('--emb_dim', type=int, default=100, help='the number of dimensions for the embedding layer')
+    embedding_group.add_argument('--word_vocab_size', type=int, default=100, help='word vocabulary size')
     embedding_group.add_argument('--cutoff', type=int, default=0, help='cutoff vocabulary to the given size')
 
     # ???
@@ -104,6 +101,7 @@ def main_train():
     logging_group.add_argument('--print_level', type=str, default='info', help='logging level [debug | info]')
 
     # Other
+    parser.add_argument('--preprocess_metadata_path', type=str, default='', help='Path of bin file containing preprocess metadata')
     parser.add_argument('--encoding', default='utf-8', help='the character encoding for input/output (defaults to utf-8)')
     parser.add_argument('--cuda', type=str, default='cuda:0')
 
@@ -165,8 +163,18 @@ def main_train():
             direction.append(optimizer)
         return optimizer
 
+    if os.path.isfile(args.preprocess_metadata_path):
+        metadata = torch.load(args.preprocess_metadata_path)
+        metadata.init_bpe_module()
+        word_dict: BpeWordDict = torch.load(metadata.word_dict_path)
+        field_dict: LabelDict = torch.load(metadata.field_dict_path)
+    else:
+        word_dict, field_dict = preprocess(args.emb_dim, args.word_vocab_size)
+
+    args.hidden = 2 * bpemb_en.dim if not args.disable_bidirectional else bpemb_en.dim
+
     # Load embedding and/or vocab
-    word_dict = BpeWordDict.get(vocab=bpemb_en.words)
+    # word_dict = BpeWordDict.get(vocab=bpemb_en.words)
     w_sos_id = {'text': word_dict.bos_index, 'table': word_dict.sot_index}
 
     word_embeddings = nn.Embedding(len(word_dict), bpemb_en.dim, padding_idx=word_dict.pad_index)
@@ -179,7 +187,7 @@ def main_train():
     word_embeddings.weight.requires_grad = False
     logger.debug('w_embeddings is running on cuda: %d', next(word_embeddings.parameters()).is_cuda)
 
-    field_dict: LabelDict = torch.load('./data/processed_data/train/field.dict')
+    # field_dict: LabelDict = torch.load('./data/processed_data/train/field.dict')
     field_embeddings = nn.Embedding(len(field_dict), bpemb_en.dim // 2, padding_idx=field_dict.pad_index)
     nn.init.normal_(field_embeddings.weight, 0, 0.1)
     nn.init.constant_(field_embeddings.weight[field_dict.pad_index], 0)

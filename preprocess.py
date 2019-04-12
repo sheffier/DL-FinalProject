@@ -6,8 +6,20 @@ from bpemb import BPEmb
 from contextlib import ExitStack
 from typing import Dict
 from src.data import LabelDict, BpeWordDict, ArticleRawDataset, InfoboxRawDataset,\
-                     Article, Infobox, BoxRecord, bpemb_en
+                     Article, Infobox, BoxRecord
 from collections import defaultdict
+
+
+class PreprocessMetadata(object):
+    def __init__(self, emb_dim, word_vocab_size, word_dict_path, field_dict_path):
+        self.emb_dim = emb_dim
+        self.word_vocab_size = word_vocab_size
+        self.word_dict_path = word_dict_path
+        self.field_dict_path = field_dict_path
+
+    def init_bpe_module(self):
+        global bpemb_en
+        bpemb_en = BPEmb(lang="en", dim=self.emb_dim, vs=self.word_vocab_size)
 
 
 def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb):
@@ -279,7 +291,7 @@ def make_dirs():
     # os.mkdir("../data/processed_data/valid/valid_split_for_rouge/")
 
 
-if __name__ == '__main__':
+def preprocess(emb_dim, word_vocab_size):
     make_dirs()
 
     box_file_path = config.ORG_TRAIN_DATA_PATH + "/train.box"
@@ -287,10 +299,12 @@ if __name__ == '__main__':
     field_dict_path = config.PRC_TRAIN_DATA_PATH + "/field.dict"
     word_dict_path = config.PRC_TRAIN_DATA_PATH + "/word.dict"
 
+    metadata = PreprocessMetadata(emb_dim, word_vocab_size, word_dict_path, field_dict_path)
+    metadata.init_bpe_module()
+
     field_vocab = create_field_label_vocab(box_file_path, field_vocab_path)
     field_dict = LabelDict.get(vocab=list(field_vocab),
                                dict_binpath=field_dict_path)
-
     bpe_dict = BpeWordDict.get(vocab=bpemb_en.words, dict_binpath=word_dict_path)
 
     infobox_ds = prepare_infobox_datasets(field_dict, bpemb_en)
@@ -298,3 +312,10 @@ if __name__ == '__main__':
 
     create_mono_datasets(field_dict, bpemb_en)
     print("Preprocessing done")
+
+    return bpe_dict, field_dict
+
+
+if __name__ == '__main__':
+    preprocess(300, 100)
+
