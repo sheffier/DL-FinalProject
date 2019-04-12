@@ -540,6 +540,9 @@ class DiscTrainer:
 
         loss = F.cross_entropy(predictions, y)
 
+        if print_dbg:
+            print("Discriminator training loss %f" % (loss.item()))
+
         # optimizer
         loss.backward()
         self.optimizer.step()
