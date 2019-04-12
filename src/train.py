@@ -575,7 +575,7 @@ class Trainer:
         self.field_loss += field_loss.item()
         self.dis_loss += dis_loss.item()
 
-        total_loss = word_loss + dis_loss
+        total_loss = word_loss
 
         if include_field_loss:
             total_loss += field_loss
@@ -584,7 +584,11 @@ class Trainer:
 
         # Backpropagate error + optimize
         t = time.time()
-        total_loss.div(self.batch_size).backward()
+
+        total_loss = total_loss.div(self.batch_size)
+        total_loss += dis_loss
+
+        total_loss.backward()
         for optimizer in self.optimizers:
             optimizer.step()
         self.backward_time += time.time() - t
