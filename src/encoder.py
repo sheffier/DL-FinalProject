@@ -16,8 +16,6 @@
 import torch
 import torch.nn as nn
 
-from src.data import bpemb_en
-
 
 class RNNEncoder(nn.Module):
     def __init__(self, word_embedding_size, field_embedding_size, hidden_size, bidirectional=False, layers=1,

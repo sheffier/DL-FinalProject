@@ -31,7 +31,6 @@ BPE_UNK, BPE_BOS, BPE_EOS, WORD_PAD, WORD_SOT = '<unk>', '<s>', '</s>', '<pad>',
 SPECIAL_WORD_SYMS = 5
 
 #bpemb_en = BPEmb(lang="en")
-bpemb_en = None
 # bpemb_en = BPEmb(lang="en", vs=200000, dim=300)
 
 

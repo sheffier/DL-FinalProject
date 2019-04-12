@@ -18,8 +18,7 @@ class PreprocessMetadata(object):
         self.field_dict_path = field_dict_path
 
     def init_bpe_module(self):
-        global bpemb_en
-        bpemb_en = BPEmb(lang="en", dim=self.emb_dim, vs=self.word_vocab_size)
+        return BPEmb(lang="en", dim=self.emb_dim, vs=self.word_vocab_size)
 
 
 def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb):
@@ -295,6 +294,8 @@ def preprocess(emb_dim, word_vocab_size):
     field_dict_path = config.PRC_TRAIN_DATA_PATH + "/field.dict"
     word_dict_path = config.PRC_TRAIN_DATA_PATH + "/word.dict"
 
+    bpemb_en = BPEmb(lang="en", dim=self.emb_dim, vs=self.word_vocab_size)
+
     metadata = PreprocessMetadata(emb_dim, word_vocab_size, word_dict_path, field_dict_path)
     metadata.init_bpe_module()
 
@@ -312,7 +313,7 @@ def preprocess(emb_dim, word_vocab_size):
     torch.save(metadata, config.PRC_TRAIN_DATA_PATH + '/metadata.bin')
     print("Preprocessing done")
 
-    return bpe_dict, field_dict
+    return bpemb_en, bpe_dict, field_dict
 
 
 if __name__ == '__main__':

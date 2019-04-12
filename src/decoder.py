@@ -15,8 +15,6 @@
 
 import torch
 import torch.nn as nn
-
-from src.data import bpemb_en
 from src.attention import GlobalAttention
 
 

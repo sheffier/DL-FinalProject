@@ -19,6 +19,7 @@ import sys
 import time
 import logging
 import torch
+import os
 
 import src.data as data
 from src.encoder import RNNEncoder
@@ -26,12 +27,9 @@ from src.decoder import RNNAttentionDecoder
 from src.generator import *
 from src.translator import Translator
 from src.data import BpeWordDict, LabelDict
-from src.data import bpemb_en
 from torch import nn
 from contextlib import ExitStack
 from preprocess import preprocess
-
-
 
 
 def main_train():
@@ -165,11 +163,11 @@ def main_train():
 
     if os.path.isfile(args.preprocess_metadata_path):
         metadata = torch.load(args.preprocess_metadata_path)
-        metadata.init_bpe_module()
+        bpemb_en = metadata.init_bpe_module()
         word_dict: BpeWordDict = torch.load(metadata.word_dict_path)
         field_dict: LabelDict = torch.load(metadata.field_dict_path)
     else:
-        word_dict, field_dict = preprocess(args.emb_dim, args.word_vocab_size)
+        bpemb_en, word_dict, field_dict = preprocess(args.emb_dim, args.word_vocab_size)
 
     args.hidden = 2 * bpemb_en.dim if not args.disable_bidirectional else bpemb_en.dim
 
@@ -265,7 +263,7 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=src_type, trg_type=src_type,
                                     encoder=src_enc, decoder=src_dec, w_sos_id=w_sos_id[src_type],
-                                    denoising=not args.disable_denoising, device=device)
+                                    bpemb_en=bpemb_en, denoising=not args.disable_denoising, device=device)
     src2trg_translator = Translator("src2trg",
                                     encoder_word_embeddings=src_encoder_word_embeddings,
                                     decoder_word_embeddings=trg_decoder_word_embeddings,
@@ -276,7 +274,7 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=src_type, trg_type=trg_type,
                                     encoder=src_enc, decoder=trg_dec, w_sos_id=w_sos_id[trg_type],
-                                    denoising=False, device=device)
+                                    bpemb_en=bpemb_en, denoising=False, device=device)
     trg2trg_translator = Translator("trg2trg",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
                                     decoder_word_embeddings=trg_decoder_word_embeddings,
@@ -287,7 +285,7 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=trg_type, trg_type=trg_type,
                                     encoder=trg_enc, decoder=trg_dec, w_sos_id=w_sos_id[trg_type],
-                                    denoising=not args.disable_denoising, device=device)
+                                    bpemb_en=bpemb_en, denoising=not args.disable_denoising, device=device)
     trg2src_translator = Translator("trg2src",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
                                     decoder_word_embeddings=src_decoder_word_embeddings,
@@ -298,7 +296,7 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=trg_type, trg_type=src_type,
                                     encoder=trg_enc, decoder=src_dec, w_sos_id=w_sos_id[src_type],
-                                    denoising=False, device=device)
+                                    bpemb_en=bpemb_en, denoising=False, device=device)
 
     # Build trainers
     trainers = []

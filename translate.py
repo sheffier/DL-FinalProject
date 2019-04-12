@@ -17,18 +17,18 @@ import argparse
 import sys
 import torch
 from contextlib import ExitStack
-from src.data import bpemb_en
 from nltk.translate.bleu_score import sentence_bleu
 import subprocess
 import os
 import pathlib
 import multiprocessing as mp
 import re
+import config
+from preprocess import PreprocessMetadata
 
 
 # BLEU_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tools')
 # BLEU_SCRIPT_PATH = os.path.join(TOOLS_PATH, 'mosesdecoder/scripts/generic/multi-bleu.perl')
-
 
 def eval_moses_bleu(ref, hyp):
     """
@@ -64,7 +64,7 @@ def load_model(model, device):
     return translator
 
 
-def trans(args, model, is_cpu, que):
+def trans(args, model, bpemb_en, is_cpu, que):
     if is_cpu:
         device = 'cpu'
     else:
@@ -168,6 +168,12 @@ def main():
 
     args = parser.parse_args()
 
+    metadataPath = config.PRC_TRAIN_DATA_PATH + '/metadata.bin'
+    assert os.path.isfile(metadataPath)
+
+    metadata = torch.load(metadataPath)
+    bpemb_en = metadata.init_bpe_module()
+
     currDir = pathlib.Path('.')
     currPatt = "*MONO*"
 
@@ -194,7 +200,7 @@ def main():
         q.put('cuda:5')
         q.put('cuda:6')
 
-    results = [pool.apply_async(trans, args=(args, model, args.is_cpu, q)) for model in model_files]
+    results = [pool.apply_async(trans, args=(args, model, bpemb_en, args.is_cpu, q)) for model in model_files]
     pool_outs = sorted([p.get() for p in results], key=lambda res: res[0])
 
     bleu_res_path = './data/processed_data/bleu_res_new.txt'

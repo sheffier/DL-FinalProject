@@ -17,8 +17,6 @@ import random
 import torch
 import torch.nn as nn
 import logging
-
-from src.data import bpemb_en
 from src.data import LabelDict, BpeWordDict
 import copy
 
@@ -30,7 +28,7 @@ class Translator:
     def __init__(self, name, encoder_word_embeddings, decoder_word_embeddings,
                  encoder_field_embeddings, decoder_field_embeddings, generator, src_word_dict,
                  trg_word_dict, src_field_dict, trg_field_dict, src_type, trg_type, encoder, decoder, w_sos_id,
-                 denoising=True, device='cpu'):
+                 bpemb_en, denoising=True, device='cpu'):
         self.name = name
         self.encoder_word_embeddings = encoder_word_embeddings
         self.decoder_word_embeddings = decoder_word_embeddings
@@ -43,6 +41,7 @@ class Translator:
         self.trg_field_dict: LabelDict = trg_field_dict
         self.encoder = encoder
         self.decoder = decoder
+        self.bpemb_en = bpemb_en
 
         assert self.encoder.batch_first == self.decoder.batch_first
 
@@ -347,7 +346,7 @@ class Translator:
 
         # Encode
         if print_dbg:
-            wsrc_dbg = bpemb_en.decode_ids(src_word[0])
+            wsrc_dbg = self.bpemb_en.decode_ids(src_word[0])
             fsrc_dbg = " ".join([self.trg_field_dict.id2word[idx] for idx in src_field[0]])
 
         # tmp_src_word = copy.deepcopy(src_word)
@@ -401,8 +400,8 @@ class Translator:
                 else:
                     temp = ""
                 print(src_sent_name + wsrc_dbg)
-                print(exp_sent_name + bpemb_en.decode_ids(test_exp_sent) + temp)
-                print(res_sent_name + bpemb_en.decode_ids(test_res_sent))
+                print(exp_sent_name + self.bpemb_en.decode_ids(test_exp_sent) + temp)
+                print(res_sent_name + self.bpemb_en.decode_ids(test_res_sent))
                 print(src_field_name + fsrc_dbg)
                 print(exp_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_exp_field]))
                 print(res_field_name + " ".join([self.trg_field_dict.id2word[idx] for idx in test_res_field]))
