@@ -174,7 +174,9 @@ def main_train():
     else:
         bpemb_en, word_dict, field_dict = preprocess(args.emb_dim, args.word_vocab_size)
 
-    args.hidden = 2 * bpemb_en.dim if not args.disable_bidirectional else bpemb_en.dim
+    args.hidden = bpemb_en.dim + bpemb_en.dim // 2
+    if not args.disable_bidirectional:
+        args.hidden *= 2
 
     # Load embedding and/or vocab
     # word_dict = BpeWordDict.get(vocab=bpemb_en.words)
