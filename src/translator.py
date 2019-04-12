@@ -27,8 +27,8 @@ logger = logging.getLogger()
 class Translator:
     def __init__(self, name, encoder_word_embeddings, decoder_word_embeddings,
                  encoder_field_embeddings, decoder_field_embeddings, generator, src_word_dict,
-                 trg_word_dict, src_field_dict, trg_field_dict, src_type, trg_type, encoder, decoder, w_sos_id,
-                 bpemb_en, denoising=True, device='cpu'):
+                 trg_word_dict, src_field_dict, trg_field_dict, src_type, trg_type, w_sos_id, bpemb_en,
+                 encoder, decoder, denoising=True, device='cpu'):
         self.name = name
         self.encoder_word_embeddings = encoder_word_embeddings
         self.decoder_word_embeddings = decoder_word_embeddings
@@ -148,8 +148,8 @@ class Translator:
 
         with torch.no_grad():
             if not self.batch_first:
-                var_wordids = torch.LongTensor(word_ids).transpose(1, 0).to(self.device)
-                var_fieldids = torch.LongTensor(field_ids).transpose(1, 0).to(self.device)
+                var_wordids = torch.LongTensor(word_ids).transpose(1, 0).contiguous().to(self.device)
+                var_fieldids = torch.LongTensor(field_ids).transpose(1, 0).contiguous().to(self.device)
             else:
                 var_wordids = torch.LongTensor(word_ids).to(self.device)
                 var_fieldids = torch.LongTensor(field_ids).to(self.device)
@@ -189,8 +189,8 @@ class Translator:
 
         with torch.no_grad():
             if not self.batch_first:
-                in_var_word_ids = torch.LongTensor(in_word_ids).transpose(1, 0).to(self.device)
-                in_var_field_ids = torch.LongTensor(in_field_ids).transpose(1, 0).to(self.device)
+                in_var_word_ids = torch.LongTensor(in_word_ids).transpose(1, 0).contiguous().to(self.device)
+                in_var_field_ids = torch.LongTensor(in_field_ids).transpose(1, 0).contiguous().to(self.device)
             else:
                 in_var_word_ids = torch.LongTensor(in_word_ids).to(self.device)
                 in_var_field_ids = torch.LongTensor(in_field_ids).to(self.device)
@@ -368,8 +368,8 @@ class Translator:
 
         with torch.no_grad():
             if not self.batch_first:
-                out_word_ids_var = torch.LongTensor(out_word_ids).transpose(1, 0).to(self.device)
-                out_field_ids_var = torch.LongTensor(out_field_ids).transpose(1, 0).to(self.device)
+                out_word_ids_var = torch.LongTensor(out_word_ids).transpose(1, 0).contiguous().to(self.device)
+                out_field_ids_var = torch.LongTensor(out_field_ids).transpose(1, 0).contiguous().to(self.device)
             else:
                 out_word_ids_var = torch.LongTensor(out_word_ids).to(self.device)
                 out_field_ids_var = torch.LongTensor(out_field_ids).to(self.device)

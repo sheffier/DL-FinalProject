@@ -261,9 +261,9 @@ def main_train():
                                     generator=src_generator,
                                     src_word_dict=word_dict, trg_word_dict=word_dict,
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
-                                    src_type=src_type, trg_type=src_type,
-                                    encoder=src_enc, decoder=src_dec, w_sos_id=w_sos_id[src_type],
-                                    bpemb_en=bpemb_en, denoising=not args.disable_denoising, device=device)
+                                    src_type=src_type, trg_type=src_type, w_sos_id=w_sos_id[src_type],
+                                    bpemb_en=bpemb_en, encoder=src_enc, decoder=src_dec,
+                                    denoising=not args.disable_denoising, device=device)
     src2trg_translator = Translator("src2trg",
                                     encoder_word_embeddings=src_encoder_word_embeddings,
                                     decoder_word_embeddings=trg_decoder_word_embeddings,
@@ -272,9 +272,9 @@ def main_train():
                                     generator=trg_generator,
                                     src_word_dict=word_dict, trg_word_dict=word_dict,
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
-                                    src_type=src_type, trg_type=trg_type,
-                                    encoder=src_enc, decoder=trg_dec, w_sos_id=w_sos_id[trg_type],
-                                    bpemb_en=bpemb_en, denoising=False, device=device)
+                                    src_type=src_type, trg_type=trg_type, w_sos_id=w_sos_id[trg_type],
+                                    bpemb_en=bpemb_en, encoder=src_enc, decoder=trg_dec,
+                                    denoising=False, device=device)
     trg2trg_translator = Translator("trg2trg",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
                                     decoder_word_embeddings=trg_decoder_word_embeddings,
@@ -283,9 +283,9 @@ def main_train():
                                     generator=trg_generator,
                                     src_word_dict=word_dict, trg_word_dict=word_dict,
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
-                                    src_type=trg_type, trg_type=trg_type,
-                                    encoder=trg_enc, decoder=trg_dec, w_sos_id=w_sos_id[trg_type],
-                                    bpemb_en=bpemb_en, denoising=not args.disable_denoising, device=device)
+                                    src_type=trg_type, trg_type=trg_type, w_sos_id=w_sos_id[trg_type],
+                                    bpemb_en=bpemb_en, encoder=trg_enc, decoder=trg_dec,
+                                    denoising=not args.disable_denoising, device=device)
     trg2src_translator = Translator("trg2src",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
                                     decoder_word_embeddings=src_decoder_word_embeddings,
@@ -294,9 +294,9 @@ def main_train():
                                     generator=src_generator,
                                     src_word_dict=word_dict, trg_word_dict=word_dict,
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
-                                    src_type=trg_type, trg_type=src_type,
-                                    encoder=trg_enc, decoder=src_dec, w_sos_id=w_sos_id[src_type],
-                                    bpemb_en=bpemb_en, denoising=False, device=device)
+                                    src_type=trg_type, trg_type=src_type, w_sos_id=w_sos_id[src_type],
+                                    bpemb_en=bpemb_en, encoder=trg_enc, decoder=src_dec,
+                                    denoising=False, device=device)
 
     # Build trainers
     trainers = []
@@ -399,6 +399,7 @@ def main_train():
     # Training
     for curr_iter in range(1, args.iterations + 1):
         print_dbg = (curr_iter % args.log_interval == 0)
+
         for trainer in trainers:
             trainer.step(print_dbg=print_dbg, include_field_loss=not args.disable_field_loss)
 
@@ -439,13 +440,14 @@ class Trainer:
         word_loss, field_loss = self.translator.score(src_word, trg_word, src_field, trg_field,
                                                       print_dbg=print_dbg, train=True)
 
-        if include_field_loss:
-            total_loss = word_loss + field_loss
-            self.field_loss += field_loss.item()
-        else:
-            total_loss = word_loss
-
         self.word_loss += word_loss.item()
+        self.field_loss += field_loss.item()
+
+        total_loss = word_loss
+
+        if include_field_loss:
+            total_loss += field_loss
+
         self.forward_time += time.time() - t
 
         # Backpropagate error + optimize
