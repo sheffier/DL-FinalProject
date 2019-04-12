@@ -20,6 +20,7 @@ import logging
 from src.data import LabelDict, BpeWordDict
 import copy
 
+from torch.nn import functional as F
 
 logger = logging.getLogger()
 
@@ -28,7 +29,7 @@ class Translator:
     def __init__(self, name, encoder_word_embeddings, decoder_word_embeddings,
                  encoder_field_embeddings, decoder_field_embeddings, generator, src_word_dict,
                  trg_word_dict, src_field_dict, trg_field_dict, src_type, trg_type, w_sos_id, bpemb_en,
-                 encoder, decoder, denoising=True, device='cpu'):
+                 encoder, decoder, discriminator=None, denoising=True, device='cpu'):
         self.name = name
         self.encoder_word_embeddings = encoder_word_embeddings
         self.decoder_word_embeddings = decoder_word_embeddings
@@ -41,6 +42,7 @@ class Translator:
         self.trg_field_dict: LabelDict = trg_field_dict
         self.encoder = encoder
         self.decoder = decoder
+        self.discriminator = discriminator
         self.bpemb_en = bpemb_en
 
         assert self.encoder.batch_first == self.decoder.batch_first
@@ -79,6 +81,8 @@ class Translator:
         self.decoder.train(mode)
         self.word_criterion.train(mode)
         self.field_criterion.train(mode)
+        if self.discriminator is not None:
+            self.discriminator.train(False)
 
     def add_control_sym(self, sentences, sentences_field, eos=False, sos=False):
         assert (eos ^ sos)
@@ -359,6 +363,15 @@ class Translator:
         else:
             logger.debug('score: h, c are on cuda: %d, %d', hidden.is_cuda, context.is_cuda)
 
+        if self.discriminator is not None:
+            predictions = self.discriminator(hidden.view(-1, hidden.size(-1)))
+            real_idx = 1 if self.src_type == 'text' else 0
+            fake_y = torch.LongTensor(predictions.size(0)).fill_(1 - real_idx)
+            fake_y = fake_y.to(self.device)
+            dis_loss = F.cross_entropy(predictions, fake_y)
+        else:
+            dis_loss = torch.tensor(0.0)
+
         # Decode
         word_logprobs, field_logprobs, hidden = self.decode(trg_word, trg_field, hidden, context,
                                                             context_mask)
@@ -412,4 +425,4 @@ class Translator:
         word_loss = self.word_criterion(word_logprobs.view(-1, word_logprobs.size()[-1]), out_word_ids_var.view(-1))
         field_loss = self.field_criterion(field_logprobs.view(-1, field_logprobs.size()[-1]), out_field_ids_var.view(-1))
 
-        return word_loss, field_loss
+        return word_loss, field_loss, dis_loss

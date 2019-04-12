@@ -24,12 +24,14 @@ import os
 import src.data as data
 from src.encoder import RNNEncoder
 from src.decoder import RNNAttentionDecoder
+from src.discriminator import Discriminator
 from src.generator import *
 from src.translator import Translator
 from src.data import BpeWordDict, LabelDict
 from torch import nn
 from contextlib import ExitStack
 from preprocess import preprocess
+from torch.nn import functional as F
 
 
 def main_train():
@@ -66,10 +68,13 @@ def main_train():
     architecture_group = parser.add_argument_group('architecture', 'Architecture related arguments')
     architecture_group.add_argument('--layers', type=int, default=2, help='the number of encoder/decoder layers (defaults to 2)')
     architecture_group.add_argument('--hidden', type=int, default=600, help='the number of dimensions for the hidden layer (defaults to 600)')
+    architecture_group.add_argument('--dis_hidden', type=int, default=150, help='Number of dimensions for the discriminator hidden layers')
+    architecture_group.add_argument('--n_dis_layers', type=int, default=2, help='Number of discriminator layers')
     architecture_group.add_argument('--disable_bidirectional', action='store_true', help='use a single direction encoder')
     architecture_group.add_argument('--disable_denoising', action='store_true', help='disable random swaps')
     architecture_group.add_argument('--disable_backtranslation', action='store_true', help='disable backtranslation')
     architecture_group.add_argument('--disable_field_loss', action='store_true', help='disable backtranslation')
+    architecture_group.add_argument('--disable_discriminator', action='store_true', help='disable discriminator')
     architecture_group.add_argument('--shared_enc', action='store_true', help='share enc for both directions')
     architecture_group.add_argument('--shared_dec', action='store_true', help='share dec for both directions')
 
@@ -252,6 +257,12 @@ def main_train():
     logger.debug('decoder model is running on cuda: %d', next(src_dec.parameters()).is_cuda)
     logger.debug('attention model is running on cuda: %d', next(src_dec.attention.parameters()).is_cuda)
 
+    discriminator = None
+
+    if not args.disable_discriminator:
+        discriminator = Discriminator(args.hidden, args.dis_hidden, args.n_dis_layers, args.dropout)
+        discriminator = discriminator.to(device)
+
     # Build translators
     src2src_translator = Translator("src2src",
                                     encoder_word_embeddings=src_encoder_word_embeddings,
@@ -262,7 +273,7 @@ def main_train():
                                     src_word_dict=word_dict, trg_word_dict=word_dict,
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=src_type, trg_type=src_type, w_sos_id=w_sos_id[src_type],
-                                    bpemb_en=bpemb_en, encoder=src_enc, decoder=src_dec,
+                                    bpemb_en=bpemb_en, encoder=src_enc, decoder=src_dec, discriminator=discriminator,
                                     denoising=not args.disable_denoising, device=device)
     src2trg_translator = Translator("src2trg",
                                     encoder_word_embeddings=src_encoder_word_embeddings,
@@ -273,7 +284,7 @@ def main_train():
                                     src_word_dict=word_dict, trg_word_dict=word_dict,
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=src_type, trg_type=trg_type, w_sos_id=w_sos_id[trg_type],
-                                    bpemb_en=bpemb_en, encoder=src_enc, decoder=trg_dec,
+                                    bpemb_en=bpemb_en, encoder=src_enc, decoder=trg_dec, discriminator=discriminator,
                                     denoising=False, device=device)
     trg2trg_translator = Translator("trg2trg",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
@@ -284,7 +295,7 @@ def main_train():
                                     src_word_dict=word_dict, trg_word_dict=word_dict,
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=trg_type, trg_type=trg_type, w_sos_id=w_sos_id[trg_type],
-                                    bpemb_en=bpemb_en, encoder=trg_enc, decoder=trg_dec,
+                                    bpemb_en=bpemb_en, encoder=trg_enc, decoder=trg_dec, discriminator=discriminator,
                                     denoising=not args.disable_denoising, device=device)
     trg2src_translator = Translator("trg2src",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
@@ -295,7 +306,7 @@ def main_train():
                                     src_word_dict=word_dict, trg_word_dict=word_dict,
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=trg_type, trg_type=src_type, w_sos_id=w_sos_id[src_type],
-                                    bpemb_en=bpemb_en, encoder=trg_enc, decoder=src_dec,
+                                    bpemb_en=bpemb_en, encoder=trg_enc, decoder=src_dec, discriminator=discriminator,
                                     denoising=False, device=device)
 
     # Build trainers
@@ -305,28 +316,46 @@ def main_train():
         if args.src_corpus_params is not None:
             f_content = open(src_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
             f_labels = open(src_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
-            corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
-                                       cache_size=args.cache)
-            src2src_trainer = Trainer(translator=src2src_translator, optimizers=src2src_optimizers, corpus=corpus,
+            src_corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
+                                           cache_size=args.cache)
+
+        if args.trg_corpus_params is not None:
+            f_content = open(trg_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
+            f_labels = open(trg_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
+            trg_corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
+                                           cache_size=args.cache)
+
+        if not args.disable_discriminator:
+            disc_trainer = DiscTrainer(device, src_corpus, trg_corpus, src_enc, trg_enc, src_encoder_word_embeddings,
+                                       src_encoder_field_embeddings, word_dict, field_dict, discriminator,
+                                       args.learning_rate, batch_size=args.batch)
+            trainers.append(disc_trainer)
+
+        if args.src_corpus_params is not None:
+            # f_content = open(src_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
+            # f_labels = open(src_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
+            # corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
+            #                            cache_size=args.cache)
+            src2src_trainer = Trainer(translator=src2src_translator, optimizers=src2src_optimizers, corpus=src_corpus,
                                       batch_size=args.batch)
             trainers.append(src2src_trainer)
             if not args.disable_backtranslation:
                 trgback2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers,
-                                              corpus=data.BacktranslatorCorpusReader(corpus=corpus,
+                                              corpus=data.BacktranslatorCorpusReader(corpus=src_corpus,
                                                                                      translator=src2trg_translator),
                                               batch_size=args.batch)
                 trainers.append(trgback2src_trainer)
         if args.trg_corpus_params is not None:
-            f_content = open(trg_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
-            f_labels = open(trg_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
-            corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
-                                       cache_size=args.cache)
-            trg2trg_trainer = Trainer(translator=trg2trg_translator, optimizers=trg2trg_optimizers, corpus=corpus,
+            # f_content = open(trg_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
+            # f_labels = open(trg_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
+            # corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
+            #                            cache_size=args.cache)
+            trg2trg_trainer = Trainer(translator=trg2trg_translator, optimizers=trg2trg_optimizers, corpus=trg_corpus,
                                       batch_size=args.batch)
             trainers.append(trg2trg_trainer)
             if not args.disable_backtranslation:
                 srcback2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers,
-                                              corpus=data.BacktranslatorCorpusReader(corpus=corpus,
+                                              corpus=data.BacktranslatorCorpusReader(corpus=trg_corpus,
                                                                                      translator=trg2src_translator),
                                               batch_size=args.batch)
                 trainers.append(srcback2trg_trainer)
@@ -415,6 +444,107 @@ def main_train():
     save_models('final')
 
 
+class DiscTrainer:
+    def __init__(self, device, table_corpus, text_corpus, src_enc, trg_enc, encoder_word_embeddings,
+                 encoder_field_embeddings, word_dict, field_dict, discriminator, lr, batch_size=50, batch_first=False):
+        self.device = device
+        self.batch_size = batch_size
+        self.batch_first = batch_first
+        self.corpus = [table_corpus, text_corpus]
+        self.w_eos_id = word_dict.eos_index
+        self.w_pad_id = word_dict.pad_index
+        self.f_pad_id = field_dict.pad_index
+        self.f_null_id = field_dict.null_index
+        self.encoder = [src_enc, trg_enc]
+        self.encoder_word_embeddings = encoder_word_embeddings
+        self.encoder_field_embeddings = encoder_field_embeddings
+        self.discriminator = discriminator
+        self.optimizer = torch.optim.Adam(discriminator.parameters(), lr=lr)
+
+    def add_control_sym(self, sentences, sentences_field):
+        def valid_and_return(sent, sent_field):
+            assert len(sent) == len(sent_field)
+            return sent, sent_field, len(sent)
+
+        sent_field_len = [valid_and_return(sent + [self.w_eos_id], sent_field + [self.f_null_id])
+                          for sent, sent_field in zip(sentences, sentences_field)]
+
+        sents, sents_field, lengths = zip(*sent_field_len)
+
+        return list(sents), list(sents_field), list(lengths)
+
+    def add_padding(self, sents, sents_field, max_length):
+        sents = [s + [self.w_pad_id]*(max_length-len(s)) for s in sents]
+        sents_field = [s + [self.f_pad_id] * (max_length - len(s)) for s in sents_field]
+
+        return sents, sents_field
+
+    def preprocess_ids(self, sentences, sentences_field):
+        word_ids, field_ids, lengths = self.add_control_sym(sentences, sentences_field)
+        max_length = max(lengths)
+
+        # Padding
+        word_ids, field_ids = self.add_padding(word_ids, field_ids, max_length)
+
+        return word_ids, field_ids, lengths
+
+    def encode(self, encoder, sentences, sentences_field):
+        word_ids, field_ids, lengths = self.preprocess_ids(sentences, sentences_field)
+
+        with torch.no_grad():
+            if not self.batch_first:
+                var_wordids = torch.LongTensor(word_ids).transpose(1, 0).to(self.device)
+                var_fieldids = torch.LongTensor(field_ids).transpose(1, 0).to(self.device)
+            else:
+                var_wordids = torch.LongTensor(word_ids).to(self.device)
+                var_fieldids = torch.LongTensor(field_ids).to(self.device)
+
+            # logger.debug('enc: word_ids are on cuda: %d', var_wordids.is_cuda)
+            # logger.debug('enc: field_ids are on cuda: %d', var_fieldids.is_cuda)
+
+        hidden = encoder.initial_hidden(len(sentences)).to(self.device)
+        # logger.debug('hidden is on cuda: %d', hidden.is_cuda)
+
+        hidden, context = encoder(word_ids=var_wordids, field_ids=var_fieldids, lengths=lengths,
+                                  word_embeddings=self.encoder_word_embeddings,
+                                  field_embeddings=self.encoder_field_embeddings, hidden=hidden)
+        return hidden, context, lengths
+
+    def step(self, print_dbg=False, include_field_loss=False):
+        self.encoder_word_embeddings.eval()
+        self.encoder_field_embeddings.eval()
+        self.discriminator.train()
+
+        self.optimizer.zero_grad()
+
+        # Read input sentences
+        encoded = []
+        t = time.time()
+        for corpus_id, corpus in enumerate(self.corpus):
+            src_word, trg_word, src_field, trg_field = corpus.next_batch(self.batch_size)
+            with torch.no_grad():
+                self.encoder[corpus_id].eval()
+                hidden, context, context_lengths = self.encode(self.encoder[corpus_id], src_word, src_field)
+                encoded.append(hidden)
+
+        # discriminator
+        dis_inputs = [x.view(-1, x.size(-1)) for x in encoded]
+        ntokens = [dis_input.size(0) for dis_input in dis_inputs]
+        encoded = torch.cat(dis_inputs, 0)
+        predictions = self.discriminator(encoded.data)
+
+        # loss
+        dis_target = torch.cat([torch.zeros(sz).fill_(i) for i, sz in enumerate(ntokens)])
+        dis_target = dis_target.contiguous().long().to(self.device)
+        y = dis_target
+
+        loss = F.cross_entropy(predictions, y)
+
+        # optimizer
+        loss.backward()
+        self.optimizer.step()
+
+
 class Trainer:
     def __init__(self, corpus, optimizers, translator, batch_size=50):
         self.corpus = corpus
@@ -431,19 +561,21 @@ class Trainer:
         # Read input sentences
         t = time.time()
         src_word, trg_word, src_field, trg_field = self.corpus.next_batch(self.batch_size)
+        self.src_sent_batch_count += 1
         self.src_word_count += sum([len(sentence) + 1 for sentence in src_word])  # TODO Depends on special symbols EOS/SOS
         self.trg_word_count += sum([len(sentence) + 1 for sentence in trg_word])  # TODO Depends on special symbols EOS/SOS
         self.io_time += time.time() - t
 
         # Compute loss
         t = time.time()
-        word_loss, field_loss = self.translator.score(src_word, trg_word, src_field, trg_field,
-                                                      print_dbg=print_dbg, train=True)
+        word_loss, field_loss, dis_loss = self.translator.score(src_word, trg_word, src_field, trg_field,
+                                                               print_dbg=print_dbg, train=True)
 
         self.word_loss += word_loss.item()
         self.field_loss += field_loss.item()
+        self.dis_loss += dis_loss.item()
 
-        total_loss = word_loss
+        total_loss = word_loss + dis_loss
 
         if include_field_loss:
             total_loss += field_loss
@@ -458,6 +590,7 @@ class Trainer:
         self.backward_time += time.time() - t
 
     def reset_stats(self):
+        self.src_sent_batch_count = 0
         self.src_word_count = 0
         self.trg_word_count = 0
         self.io_time = 0
@@ -465,6 +598,7 @@ class Trainer:
         self.backward_time = 0
         self.word_loss = 0
         self.field_loss = 0
+        self.dis_loss = 0
 
     def perplexity_per_word(self):
         return np.exp(self.word_loss/self.trg_word_count)
@@ -545,11 +679,12 @@ class Logger:
         if self.trainer is not None:
             w_loss = self.trainer.word_loss / self.trainer.trg_word_count
             f_loss = self.trainer.field_loss / self.trainer.trg_word_count
+            dis_loss = self.trainer.dis_loss / self.trainer.src_sent_batch_count
 
-            print('  - Training:     pps {0:6.3f} | w_loss {1:3.4f} | f_loss {2:3.4f}'
-                  '  (t_time {3:.2f}s io_time {4:.2f}s; fw_time {5:.2f}s; bw_time {6:.2f}s: '
-                  '{7:.2f}tok/s src, {8:.2f}tok/s trg; epoch {9})'
-                  .format(self.trainer.perplexity_per_word(), w_loss, f_loss, self.trainer.total_time(),
+            print('  - Training:     pps {0:6.3f} | w_loss {1:3.4f} | f_loss {2:3.4f} | dis_loss {3:3.4f}'
+                  '  (t_time {4:.2f}s io_time {5:.2f}s; fw_time {6:.2f}s; bw_time {7:.2f}s: '
+                  '{8:.2f}tok/s src, {9:.2f}tok/s trg; epoch {10})'
+                  .format(self.trainer.perplexity_per_word(), w_loss, f_loss, dis_loss, self.trainer.total_time(),
                           self.trainer.io_time, self.trainer.forward_time, self.trainer.backward_time,
                           self.trainer.words_per_second()[0], self.trainer.words_per_second()[1], self.trainer.corpus.epoch))
             self.trainer.reset_stats()
