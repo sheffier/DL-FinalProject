@@ -85,8 +85,6 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb):
 
         print("Finished preprocessing. %s dataset has %d articles" % (name, len(articles_datasets[name].articles)))
 
-    return articles_datasets
-
 
 def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
     ib_datasets: Dict[str, InfoboxRawDataset] = {'train': None,
@@ -167,8 +165,6 @@ def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
             ib_datasets[name].dump(ib_processed_paths[name] + '.shuffle', bpe, shuffle=2)
 
         print("Finished preprocessing. %s dataset has %d boxes" % (name, len(ib_datasets[name].infoboxes)))
-
-    return ib_datasets
 
 
 def create_field_label_vocab(in_path, out_path):
@@ -265,11 +261,11 @@ def create_mono_datasets(label_dict: LabelDict, bpe):
         print(name + ": " + "Save mono box dataset as binary")
         box_ds.dump(box_info[2], bpe)
         torch.save(box_ds, box_info[2] + '.bin')
+        del box_ds
+
         print(name + ": " + "Save mono article dataset as binary")
         article_ds.dump(article_info[2], bpe)
         torch.save(article_ds, article_info[2] + '.bin')
-
-        del box_ds
         del article_ds
 
 
@@ -307,15 +303,17 @@ def preprocess(emb_dim, word_vocab_size):
                                dict_binpath=field_dict_path)
     bpe_dict = BpeWordDict.get(vocab=bpemb_en.words, dict_binpath=word_dict_path)
 
-    infobox_ds = prepare_infobox_datasets(field_dict, bpemb_en)
-    articles_ds = prepare_articles_dataset(field_dict, bpemb_en)
+    prepare_infobox_datasets(field_dict, bpemb_en)
+    prepare_articles_dataset(field_dict, bpemb_en)
 
     create_mono_datasets(field_dict, bpemb_en)
+
+    print("Saving metadata")
+    torch.save(metadata, config.PRC_TRAIN_DATA_PATH + '/metadata.bin')
     print("Preprocessing done")
 
     return bpe_dict, field_dict
 
 
 if __name__ == '__main__':
-    preprocess(300, 100)
-
+    preprocess(300, 10000)
