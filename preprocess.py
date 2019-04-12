@@ -294,7 +294,7 @@ def preprocess(emb_dim, word_vocab_size):
     field_dict_path = config.PRC_TRAIN_DATA_PATH + "/field.dict"
     word_dict_path = config.PRC_TRAIN_DATA_PATH + "/word.dict"
 
-    bpemb_en = BPEmb(lang="en", dim=self.emb_dim, vs=self.word_vocab_size)
+    bpemb_en = BPEmb(lang="en", dim=emb_dim, vs=word_vocab_size)
 
     metadata = PreprocessMetadata(emb_dim, word_vocab_size, word_dict_path, field_dict_path)
     metadata.init_bpe_module()
