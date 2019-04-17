@@ -49,7 +49,7 @@ def eval_moses_bleu(ref, hyp):
 
 
 def load_model(model, device): 
-    translator = torch.load(model)
+    translator = torch.load(model, map_location=device)
     translator.device = device
     translator.encoder_word_embeddings.to(device)
     translator.decoder_word_embeddings.to(device)
@@ -75,12 +75,13 @@ def trans(args, model, bpemb_en, is_cpu, que):
     model_it = re.search(r".it(?P<it>[\d]*)", str(model)).group('it')
     args.output = args.output + '.' + model_it
 
-    print("[DEVICE %s | PID %d | it %s] Start evaluation model %s on device %s" % (device, pid, model_it, str(model), device))
-
+    print("[DEVICE %s | PID %d | it %s] Start evaluation model %s on device %s" %
+          (device, pid, model_it, str(model), device))
 
     translator = load_model(model, device)
+
     print("[DEVICE %s | PID %d | it %s] Verify device %s" % (device, pid, model_it, translator.device))
-    
+
     args.output = args.output + ''
     create_ref_file = (device == 'cuda:0') and (not os.path.isfile(args.ref + '.str.content'))
 
@@ -165,6 +166,7 @@ def main():
     parser.add_argument('--ref', type=str, default='./data/processed_data/valid/valid.article',
                         help='the reference file')
     parser.add_argument('--is_cpu', action='store_true')
+    parser.add_argument('--pattern', type=str, default='MONO')
 
     args = parser.parse_args()
 
@@ -175,7 +177,7 @@ def main():
     bpemb_en = metadata.init_bpe_module()
 
     currDir = pathlib.Path('.')
-    currPatt = "*MONO*"
+    currPatt = "*" + args.pattern + ".*"
 
     if args.model == '':
         model_files = sorted([currFile for currFile in currDir.glob(currPatt)],
@@ -196,14 +198,14 @@ def main():
 
     if not args.is_cpu:
         q.put('cuda:0')
+        q.put('cuda:1')
+        q.put('cuda:2')
         q.put('cuda:3')
-        q.put('cuda:5')
-        q.put('cuda:6')
 
     results = [pool.apply_async(trans, args=(args, model, bpemb_en, args.is_cpu, q)) for model in model_files]
     pool_outs = sorted([p.get() for p in results], key=lambda res: res[0])
 
-    bleu_res_path = './data/processed_data/bleu_res_new.txt'
+    bleu_res_path = './data/processed_data/' + args.pattern + '_bleu_res_new.txt'
     with open(bleu_res_path, mode='w', encoding=args.encoding) as bleu_file:
         for pool_out in pool_outs:
             bleu_file.write(pool_out[1])
