@@ -164,18 +164,18 @@ def main():
     bpemb_en = metadata.init_bpe_module()
 
     currDir = pathlib.Path('.')
-    currPatt = "*" + args.prefix + ".*"
+    currPatt = "*" + args.prefix + ".it*.src2trg*"
 
     assert os.path.isdir(args.testset_path), "{} is not a directory".format(args.testset_path)
     test_basename = os.path.basename(args.testset_path)
-    test_basedir = os.path.dirname(args.testset_path)
-    output_dir = os.path.join(test_basedir, os.path.join('translations', args.prefix))
-    safe_mkdir(local_path_to(output_dir))
+    test_basedir = os.path.abspath(args.testset_path)
 
     input_filepath = os.path.join(test_basedir, test_basename + '.box')
-
     ref_path = os.path.join(test_basedir,  test_basename + '.article')
     ref_string_path = ref_path + '.str.content'
+
+    output_dir = os.path.join(test_basedir, os.path.join('translations', args.prefix))
+    safe_mkdir(local_path_to(output_dir))
 
     if not os.path.isfile(ref_string_path):
         print("Creating ref file...")
