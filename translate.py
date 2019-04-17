@@ -155,6 +155,7 @@ def main():
                         help='test data path')
     parser.add_argument('--is_cpu', action='store_true')
     parser.add_argument('--prefix', type=str, default='MONO')
+    parser.add_argument('--train_corpus_mode', type=str, default='MONO', help='MONO/PARA')
 
     args = parser.parse_args()
 
@@ -173,19 +174,25 @@ def main():
 
     input_filepath = os.path.join(test_basedir, test_basename + '.box')
     ref_path = os.path.join(test_basedir,  test_basename + '.article')
+
+    if args.train_corpus_mode == 'MONO':
+        input_filepath += '.mono'
+        ref_path += '.mono'
+
     ref_string_path = ref_path + '.str.content'
 
     output_dir = os.path.join(test_basedir, os.path.join('translations', args.prefix))
     safe_mkdir(local_path_to(output_dir))
 
     if not os.path.isfile(ref_string_path):
-        print("Creating ref file...")
+        print("Creating ref file... [%s] [%s]" % (ref_path + '.content', ref_string_path))
 
         with ExitStack() as stack:
+
             fref_content = stack.enter_context(
                 open(ref_path + '.content', encoding=args.encoding, errors='surrogateescape'))
             fref_str_content = stack.enter_context(
-                open(ref_path + '.str.content', mode='w', encoding=args.encoding, errors='surrogateescape'))
+                open(ref_string_path, mode='w', encoding=args.encoding, errors='surrogateescape'))
 
             for line in fref_content:
                 ref_ids = [int(idstr) for idstr in line.strip().split()]
