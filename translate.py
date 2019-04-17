@@ -136,7 +136,8 @@ def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, is_cp
         que.put(device)
 
     print("[DEVICE %s | PID %d | it %s] Evaluating BLEU" % (device, pid, model_it))
-    result = eval_moses_bleu(ref_filepath + '.str.content', output_filepath + '.content')
+    result = eval_moses_bleu(ref_filepath, output_filepath + '.content')
+    print("[DEVICE %s | PID %d | it %s] %s" % (device, pid, model_it, result))
     print("[DEVICE %s | PID %d | it %s] Done" % (device, pid, model_it))
 
     return int(model_it), str(model) + ': ' + result + '\n'
@@ -210,22 +211,28 @@ def main():
     m = mp.Manager()
     q = m.Queue()
 
-    if not args.is_cpu:
+    if args.model == '':
+        if not args.is_cpu:
+            q.put('cuda:0')
+            q.put('cuda:1')
+            q.put('cuda:2')
+            q.put('cuda:3')
+
+        results = [pool.apply_async(trans, args=(args, input_filepath, output_dir, ref_string_path,
+                                                 model, bpemb_en, args.is_cpu, q)) for model in model_files]
+        pool_outs = sorted([p.get() for p in results], key=lambda res: res[0])
+
+        bleu_res_path = './data/processed_data/' + args.prefix + '_bleu_res_new.txt'
+
+        with open(bleu_res_path, mode='w', encoding=args.encoding) as bleu_file:
+            for pool_out in pool_outs:
+                bleu_file.write(pool_out[1])
+    else:
         q.put('cuda:0')
-        q.put('cuda:1')
-        q.put('cuda:2')
-        q.put('cuda:3')
-
-    results = [pool.apply_async(trans, args=(args, input_filepath, output_dir, ref_string_path,
-                                             model, bpemb_en, args.is_cpu, q)) for model in model_files]
-    pool_outs = sorted([p.get() for p in results], key=lambda res: res[0])
-
-    bleu_res_path = './data/processed_data/' + args.prefix + '_bleu_res_new.txt'
-
-    with open(bleu_res_path, mode='w', encoding=args.encoding) as bleu_file:
-        for pool_out in pool_outs:
-            bleu_file.write(pool_out[1])
-
+        bleu_res = trans(args, input_filepath, output_dir, ref_string_path, model_files[0], bpemb_en,
+                         args.is_cpu, q)
+        print(bleu_res)
+        
 
 if __name__ == '__main__':
     main()
