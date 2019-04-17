@@ -265,81 +265,98 @@ class Translator:
         return word_translations, field_translations
 
     def beam_search(self, sentences, field_sentences, beam_size=12, max_ratio=2, train=False):
-        pass
-    #     self._train(train)
-    #     batch_size = len(sentences)
-    #     input_lengths = [len(data.tokenize(sentence)) for sentence in sentences]
-    #     for idx, field_sent in enumerate(field_sentences):
-    #         assert input_lengths[idx] == len(data.tokenize(field_sent))
-    #     hidden, context, context_lengths = self.encode(sentences, field_sentences, train)
-    #     word_translations = [[] for sentence in sentences]
-    #     field_translations = word_translations.copy()
-    #     pending = set(range(batch_size))
-    #
-    #     hidden = hidden.repeat(1, beam_size, 1)
-    #     context = context.repeat(1, beam_size, 1)
-    #     context_lengths *= beam_size
-    #     context_mask = self.mask(context_lengths)
-    #     ones = beam_size*batch_size*[1]
-    #     prev_words = beam_size*batch_size*[self.word_sos_index]
-    #     prev_fields = beam_size*batch_size*[self.field_sos_index]
-    #     output = self.device(self.decoder.initial_output(beam_size*batch_size))
-    #
-    #     word_translation_scores = batch_size*[-float('inf')]
-    #     field_translation_scores = batch_size * [-float('inf')]
-    #     word_hypotheses = batch_size*[(0.0, [])] +\
-    #                       (beam_size-1)*batch_size*[(-float('inf'), [])]  # (score, translation)
-    #     field_hypotheses = batch_size * [(0.0, [])] +\
-    #                        (beam_size - 1) * batch_size * [(-float('inf'), [])]  # (score, translation)
-    #
-    #     while len(pending) > 0:
-    #         # Each iteration should update: prev_words, hidden, output
-    #         word_var = self.device(Variable(torch.LongTensor([prev_words]), requires_grad=False))
-    #         field_var = self.device(Variable(torch.LongTensor([prev_fields]), requires_grad=False))
-    #         word_logprobs, field_logprobs, hidden, output = self.decoder(word_var, field_var, ones,
-    #                                                                      self.decoder_word_embeddings,
-    #                                                                      self.decoder_field_embeddings,
-    #                                                                      hidden, context, context_mask,
-    #                                                                      output, self.generator)
-    #         prev_words = word_logprobs.max(dim=2)[1].squeeze().data.cpu().numpy().tolist()
-    #         prev_fields = field_logprobs.max(dim=2)[1].squeeze().data.cpu().numpy().tolist()
-    #
-    #         word_scores, words = word_logprobs.topk(k=beam_size+1, dim=2, sorted=False)
-    #         word_scores = word_scores.squeeze(0).data.cpu().numpy().tolist()  # (beam_size*batch_size) * (beam_size+1)
-    #         words = words.squeeze(0).data.cpu().numpy().tolist()
-    #
-    #         field_scores, fields = field_logprobs.topk(k=beam_size+1, dim=2, sorted=False)
-    #         field_scores = field_scores.squeeze(0).data.cpu().numpy().tolist()  # (beam_size*batch_size) * (beam_size+1)
-    #         fields = fields.squeeze(0).data.cpu().numpy().tolist()
-    #
-    #         for sentence_index in pending.copy():
-    #             candidates = []  # (score, index, word)
-    #             for rank in range(beam_size):
-    #                 index = sentence_index + rank*batch_size
-    #                 for i in range(beam_size + 1):
-    #                     word = words[index][i]
-    #                     score = word_hypotheses[index][0] + word_scores[index][i]
-    #                     if word != data.EOS:
-    #                         candidates.append((score, index, word))
-    #                     elif score > word_translation_scores[sentence_index]:
-    #                         word_translations[sentence_index] = word_hypotheses[index][1] + [word]
-    #                         word_translation_scores[sentence_index] = score
-    #             best = []  # score, word, translation, hidden, output
-    #             for score, current_index, word in sorted(candidates, reverse=True)[:beam_size]:
-    #                 translation = word_hypotheses[current_index][1] + [word]
-    #                 best.append((score, word, translation, hidden[:, current_index, :].data, output[current_index].data))
-    #             for rank, (score, word, translation, h, o) in enumerate(best):
-    #                 next_index = sentence_index + rank*batch_size
-    #                 word_hypotheses[next_index] = (score, translation)
-    #                 prev_words[next_index] = word
-    #                 hidden[:, next_index, :] = h
-    #                 output[next_index, :] = o
-    #             if len(word_hypotheses[sentence_index][1]) >= max_ratio*input_lengths[sentence_index] or word_translation_scores[sentence_index] > word_hypotheses[sentence_index][0]:
-    #                 pending.discard(sentence_index)
-    #                 if len(word_translations[sentence_index]) == 0:
-    #                     word_translations[sentence_index] = word_hypotheses[sentence_index][1]
-    #                     word_translation_scores[sentence_index] = word_hypotheses[sentence_index][0]
-    #     return self.trg_word_dict.ids2sentences(word_translations)
+        self._train(train)
+        batch_size = len(sentences)
+
+        assert len(sentences) == len(field_sentences)
+        for sent, sent_field in zip(sentences, field_sentences):
+            assert len(sent) == len(sent_field)
+
+        hidden, context, context_lengths = self.encode(sentences, field_sentences, train)
+        word_translations = [[] for _ in sentences]
+        field_translations = [[] for _ in field_sentences]
+
+        hidden = hidden.repeat(1, beam_size, 1)
+        context = context.repeat(1, beam_size, 1)
+        context_lengths *= beam_size
+        context_mask = self.mask(context_lengths)
+        ones = beam_size*batch_size*[1]
+        prev_words = beam_size*batch_size*[self.w_sos_id]
+        prev_fields = beam_size*batch_size*[self.f_null_id]
+        pending = set(range(batch_size))
+        output = self.decoder.initial_output(beam_size*batch_size).to(self.device)
+
+        word_translation_scores = batch_size*[-float('inf')]
+        field_translation_scores = batch_size * [-float('inf')]
+        word_hypotheses = batch_size*[(0.0, [])] +\
+                                      (beam_size-1)*batch_size*[(-float('inf'), [])]  # (score, translation)
+        field_hypotheses = batch_size * [(0.0, [])] +\
+                                         (beam_size - 1) * batch_size * [(-float('inf'), [])]  # (score, translation)
+
+        while len(pending) > 0:
+            # Each iteration should update: prev_words, hidden, output
+            with torch.no_grad():
+                var_word = torch.LongTensor([prev_words]).to(self.device)
+                var_field = torch.LongTensor([prev_fields]).to(self.device)
+                logger.debug('beam: word_ids are on cuda: %d', var_word.is_cuda)
+                logger.debug('beam: field_ids are on cuda: %d', var_field.is_cuda)
+
+            word_logprobs, field_logprobs, hidden, output = self.decoder(var_word, var_field, ones,
+                                                                         self.decoder_word_embeddings,
+                                                                         self.decoder_field_embeddings,
+                                                                         hidden, context, context_mask,
+                                                                         output, self.generator)
+
+            prev_words = word_logprobs.max(dim=2)[1].squeeze().data.cpu().numpy().tolist()
+            prev_fields = field_logprobs.max(dim=2)[1].squeeze().data.cpu().numpy().tolist()
+
+            word_scores, words = word_logprobs.topk(k=beam_size+1, dim=2, sorted=False)
+            word_scores = word_scores.squeeze(0).data.cpu().numpy().tolist()  # (beam_size*batch_size) * (beam_size+1)
+            words = words.squeeze(0).data.cpu().numpy().tolist()
+
+            field_scores, fields = field_logprobs.topk(k=beam_size+1, dim=2, sorted=False)
+            field_scores = field_scores.squeeze(0).data.cpu().numpy().tolist()  # (beam_size*batch_size) * (beam_size+1)
+            fields = fields.squeeze(0).data.cpu().numpy().tolist()
+
+            for sentence_index in pending.copy():
+                candidates = []  # (score, index, word)
+                for rank in range(beam_size):
+                    index = sentence_index + rank*batch_size
+                    for i in range(beam_size + 1):
+                        word = words[index][i]
+                        field = fields[index][i]
+                        w_score = word_hypotheses[index][0] + word_scores[index][i]
+                        f_score = field_hypotheses[index][0] + field_scores[index][i]
+                        if word != self.w_eos_id:
+                            candidates.append((w_score, f_score, index, word, field))
+                        elif w_score > word_translation_scores[sentence_index]:
+                            word_translations[sentence_index] = word_hypotheses[index][1] + [word]
+                            field_translations[sentence_index] = field_hypotheses[index][1] + [field]
+                            word_translation_scores[sentence_index] = w_score
+                            field_translation_scores[sentence_index] = f_score
+                best = []  # score, word, translation, hidden, output
+                for w_score, f_score, current_index, word, field in sorted(candidates, reverse=True)[:beam_size]:
+                    w_translation = word_hypotheses[current_index][1] + [word]
+                    f_translation = field_hypotheses[current_index][1] + [field]
+                    best.append((w_score, f_score, word, field, w_translation, f_translation,
+                                 hidden[:, current_index, :].data, output[current_index].data))
+                for rank, (w_score, f_score, word, field, w_translation, f_translation, h, o) in enumerate(best):
+                    next_index = sentence_index + rank*batch_size
+                    word_hypotheses[next_index] = (w_score, w_translation)
+                    field_hypotheses[next_index] = (f_score, f_translation)
+                    prev_words[next_index] = word
+                    prev_fields[next_index] = field
+                    hidden[:, next_index, :] = h
+                    output[next_index, :] = o
+                if len(word_hypotheses[sentence_index][1]) >= max_ratio*len(sentences[sentence_index]) or\
+                        word_translation_scores[sentence_index] > word_hypotheses[sentence_index][0]:
+                    pending.discard(sentence_index)
+                    if len(word_translations[sentence_index]) == 0:
+                        word_translations[sentence_index] = word_hypotheses[sentence_index][1]
+                        field_translations[sentence_index] = field_hypotheses[sentence_index][1]
+                        word_translation_scores[sentence_index] = word_hypotheses[sentence_index][0]
+                        field_translation_scores[sentence_index] = field_hypotheses[sentence_index][0]
+        return word_translations, field_translations
 
     def score(self, src_word, trg_word, src_field, trg_field, print_dbg=False, train=False):
         self._train(train)
