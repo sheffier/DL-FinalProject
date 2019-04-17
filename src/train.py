@@ -86,6 +86,7 @@ def main_train():
     optimization_group.add_argument('--dropout', metavar='PROB', type=float, default=0.3, help='dropout probability for the encoder/decoder (defaults to 0.3)')
     optimization_group.add_argument('--param_init', metavar='RANGE', type=float, default=0.1, help='uniform initialization in the specified range (defaults to 0.1,  0 for module specific default initialization)')
     optimization_group.add_argument('--iterations', type=int, default=300000, help='the number of training iterations (defaults to 300000)')
+    optimization_group.add_argument('--beam_size', type=int, default=0, help='use beam search')
 
     # Model saving
     saving_group = parser.add_argument_group('model saving', 'Arguments for saving the trained model')
@@ -340,7 +341,8 @@ def main_train():
             if not args.disable_backtranslation:
                 trgback2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers,
                                               corpus=data.BacktranslatorCorpusReader(corpus=src_corpus,
-                                                                                     translator=src2trg_translator),
+                                                                                     translator=src2trg_translator,
+                                                                                     beam_size=args.beam_size),
                                               batch_size=args.batch)
                 trainers.append(trgback2src_trainer)
         if args.trg_corpus_params is not None:
@@ -350,7 +352,8 @@ def main_train():
             if not args.disable_backtranslation:
                 srcback2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers,
                                               corpus=data.BacktranslatorCorpusReader(corpus=trg_corpus,
-                                                                                     translator=trg2src_translator),
+                                                                                     translator=trg2src_translator,
+                                                                                     beam_size=args.beam_size),
                                               batch_size=args.batch)
                 trainers.append(srcback2trg_trainer)
     elif args.corpus_mode == 'para':

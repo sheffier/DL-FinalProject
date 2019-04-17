@@ -373,15 +373,20 @@ class CorpusReader:
 
 
 class BacktranslatorCorpusReader:
-    def __init__(self, corpus, translator):
+    def __init__(self, corpus, translator, beam_size=0):
         self.corpus = corpus
         self.translator = translator
         self.epoch = corpus.epoch
         self.validate = False
+        self.beam_size = beam_size
 
     def next_batch(self, size):
         src_word, trg_word, src_field, trg_field = self.corpus.next_batch(size)
-        src_word, src_field = self.translator.greedy(trg_word, trg_field, train=False)
+        if self.beam_size == 0:
+            src_word, src_field = self.translator.greedy(trg_word, trg_field, train=False)
+        else:
+            src_word, src_field = self.translator.beam(trg_word, trg_field, beam_size=self.beam_size, train=False)
+
         if self.corpus.epoch > self.epoch:
             self.validate = True
 
