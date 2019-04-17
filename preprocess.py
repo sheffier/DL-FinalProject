@@ -8,6 +8,7 @@ from typing import Dict
 from src.data import LabelDict, BpeWordDict, ArticleRawDataset, InfoboxRawDataset,\
                      Article, Infobox, BoxRecord
 from collections import defaultdict
+from src.utils import safe_mkdir
 
 
 class PreprocessMetadata(object):
@@ -269,10 +270,6 @@ def create_mono_datasets(label_dict: LabelDict, bpe):
 
 
 def make_dirs():
-    def safe_mkdir(path):
-        if not os.path.exists(path):
-            os.mkdir(path)
-
     # os.mkdir("../data/results/")
     # os.mkdir("../data/results/res/")
     # os.mkdir("../data/results/evaluation/")

@@ -1,11 +1,4 @@
-import os
-
-
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))  # your Project Root
-
-
-def local_path_to(relative_path):
-    return os.path.join(ROOT_DIR, relative_path)
+from src.utils import local_path_to
 
 
 ORG_TRAIN_DATA_PATH = local_path_to('data/original_data/train')
