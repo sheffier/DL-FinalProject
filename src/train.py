@@ -261,7 +261,7 @@ def main_train():
 
     discriminator = None
 
-    if not args.disable_discriminator:
+    if (args.corpus_mode == 'mono') and not args.disable_discriminator:
         discriminator = Discriminator(args.hidden, args.dis_hidden, args.n_dis_layers, args.dropout)
         discriminator = discriminator.to(device)
 
