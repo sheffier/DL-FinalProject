@@ -166,7 +166,7 @@ def main():
     parser.add_argument('--ref', type=str, default='./data/processed_data/valid/valid.article',
                         help='the reference file')
     parser.add_argument('--is_cpu', action='store_true')
-    parser.add_argument('--pattern', type=str, default='MONO')
+    parser.add_argument('--prefix', type=str, default='MONO')
 
     args = parser.parse_args()
 
@@ -177,7 +177,7 @@ def main():
     bpemb_en = metadata.init_bpe_module()
 
     currDir = pathlib.Path('.')
-    currPatt = "*" + args.pattern + ".*"
+    currPatt = "*" + args.prefix + ".*"
 
     if args.model == '':
         model_files = sorted([currFile for currFile in currDir.glob(currPatt)],
@@ -205,7 +205,7 @@ def main():
     results = [pool.apply_async(trans, args=(args, model, bpemb_en, args.is_cpu, q)) for model in model_files]
     pool_outs = sorted([p.get() for p in results], key=lambda res: res[0])
 
-    bleu_res_path = './data/processed_data/' + args.pattern + '_bleu_res_new.txt'
+    bleu_res_path = './data/processed_data/' + args.prefix + '_bleu_res_new.txt'
     with open(bleu_res_path, mode='w', encoding=args.encoding) as bleu_file:
         for pool_out in pool_outs:
             bleu_file.write(pool_out[1])
