@@ -334,10 +334,6 @@ def main_train():
             trainers.append(disc_trainer)
 
         if args.src_corpus_params is not None:
-            # f_content = open(src_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
-            # f_labels = open(src_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
-            # corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
-            #                            cache_size=args.cache)
             src2src_trainer = Trainer(translator=src2src_translator, optimizers=src2src_optimizers, corpus=src_corpus,
                                       batch_size=args.batch)
             trainers.append(src2src_trainer)
@@ -348,10 +344,6 @@ def main_train():
                                               batch_size=args.batch)
                 trainers.append(trgback2src_trainer)
         if args.trg_corpus_params is not None:
-            # f_content = open(trg_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
-            # f_labels = open(trg_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
-            # corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
-            #                            cache_size=args.cache)
             trg2trg_trainer = Trainer(translator=trg2trg_translator, optimizers=trg2trg_optimizers, corpus=trg_corpus,
                                       batch_size=args.batch)
             trainers.append(trg2trg_trainer)
