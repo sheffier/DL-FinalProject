@@ -152,12 +152,6 @@ def main():
                         help='the character encoding for input/output (defaults to utf-8)')
     parser.add_argument('--testset_path', type=str, default='./data/processed_data/valid',
                         help='test data path')
-    parser.add_argument('-i', '--input', type=str, default='./data/processed_data/valid/valid.box',
-                        help='the input file for translation')
-    parser.add_argument('-o', '--output', type=str, default='./data/processed_data/valid/res.article',
-                        help='the output file')
-    parser.add_argument('--ref', type=str, default='./data/processed_data/valid/valid.article',
-                        help='the reference file')
     parser.add_argument('--is_cpu', action='store_true')
     parser.add_argument('--prefix', type=str, default='MONO')
 
