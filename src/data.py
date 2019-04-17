@@ -385,7 +385,8 @@ class BacktranslatorCorpusReader:
         if self.beam_size == 0:
             src_word, src_field = self.translator.greedy(trg_word, trg_field, train=False)
         else:
-            src_word, src_field = self.translator.beam(trg_word, trg_field, beam_size=self.beam_size, train=False)
+            src_word, src_field = self.translator.beam_search(trg_word, trg_field, beam_size=self.beam_size,
+                                                              train=False)
 
         if self.corpus.epoch > self.epoch:
             self.validate = True
