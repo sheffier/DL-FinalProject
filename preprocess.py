@@ -58,6 +58,7 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb):
                 bytes_read = 0
                 total_bytes = os.path.getsize(sentences_paths[name]['sents_per_art'])
                 target_bytes = 0
+                article_cnt = 0
 
                 for line in f_sents_per_art:
                     if bytes_read >= target_bytes:
@@ -73,10 +74,17 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb):
 
                         article.add_sentence(sentence)
 
-                    articles_datasets[name].add_article(article)
+                    if len(article.sentences) != 0:
+                        articles_datasets[name].add_article(article)
+                    else:
+                        print("article %d was not added" % article_cnt)
 
+                    article_cnt += 1
+
+            print("[%s] %d / %d articles were added" % (name, len(articles_datasets[name].articles), article_cnt))
             print("Save articles dataset as binary")
             torch.save(articles_datasets[name], article_processed_paths[name] + '.bin')
+            print("[%s] Done" % name)
 
         if os.path.isfile(article_processed_paths[name] + '.content') is False:
             articles_datasets[name].dump(article_processed_paths[name], bpe)
@@ -115,6 +123,7 @@ def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
                 bytes_read = 0
                 total_bytes = os.path.getsize(ib_paths[name])
                 target_bytes = 0
+                infobox_cnt = 0
 
                 for line in boxes_file:
                     if bytes_read >= target_bytes:
@@ -154,10 +163,17 @@ def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
                     if len(box_record.content) != 0:
                         infobox.add_record(box_record)
 
-                    ib_datasets[name].add_infobox(infobox)
+                    if len(infobox.records) != 0:
+                        ib_datasets[name].add_infobox(infobox)
+                    else:
+                        print("infobox %d was not added" % infobox_cnt)
 
-            print("Save box dataset as binary")
+                    infobox_cnt += 1
+
+            print("[%s] %d / %d boxes were added" % (name, len(ib_datasets[name].infoboxes), infobox_cnt))
+            print("[%s] Save box dataset as binary..." % name)
             torch.save(ib_datasets[name], ib_processed_paths[name] + '.bin')
+            print("[%s] Done" % name)
 
         if os.path.isfile(ib_processed_paths[name] + '.content') is False:
             ib_datasets[name].dump(ib_processed_paths[name], bpe)
