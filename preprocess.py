@@ -2,13 +2,24 @@ import re
 import os
 import torch
 import config
+import mmap
 from bpemb import BPEmb
 from contextlib import ExitStack
-from typing import Dict
+from typing import Dict, List
 from src.data import LabelDict, BpeWordDict, ArticleRawDataset, InfoboxRawDataset,\
                      Article, Infobox, BoxRecord
 from collections import defaultdict
 from src.utils import safe_mkdir
+from tqdm import tqdm
+
+
+def get_num_lines(file_path):
+    fp = open(file_path, "r+")
+    buf = mmap.mmap(fp.fileno(), 0)
+    lines = 0
+    while buf.readline():
+        lines += 1
+    return lines
 
 
 class PreprocessMetadata(object):
@@ -22,7 +33,7 @@ class PreprocessMetadata(object):
         return BPEmb(lang="en", dim=self.emb_dim, vs=self.word_vocab_size)
 
 
-def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb):
+def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb, box_datasets):
     articles_datasets: Dict[str, ArticleRawDataset] = {'train': None,
                                                        'valid': None,
                                                        'test': None}
@@ -41,12 +52,10 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb):
     for name in articles_datasets.keys():
         if os.path.isfile(article_processed_paths[name] + '.bin'):
             print("Loading %s Article dataset from %s ..." % (name, article_processed_paths[name] + '.bin'))
-            # articles_dataset = torch.load(article_processed_paths[name] + '.bin')
             articles_datasets[name] = torch.load(article_processed_paths[name] + '.bin')
             print("Dataset contains %d articles" % len(articles_datasets[name].articles))
         else:
             articles_datasets[name] = ArticleRawDataset(label_dict)
-            # articles_dataset = ArticleRawDataset(label_dict)
 
             print("Preprocessing %s articles" % name)
 
@@ -55,17 +64,16 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb):
                 f_sents_per_art = stack.enter_context(
                     open(sentences_paths[name]['sents_per_art'], "r", encoding='utf-8'))
 
-                bytes_read = 0
-                total_bytes = os.path.getsize(sentences_paths[name]['sents_per_art'])
-                target_bytes = 0
                 article_cnt = 0
 
-                for line in f_sents_per_art:
-                    if bytes_read >= target_bytes:
-                        print("progress %.3f" % (100.0 * (bytes_read / total_bytes)))
-                        target_bytes += total_bytes // 20
+                for idx, line in enumerate(tqdm(f_sents_per_art, total=get_num_lines(sentences_paths[name]['sents_per_art']))):
+                    article_cnt += 1
 
-                    bytes_read += len(line)
+                    if len(box_datasets[name].skipped_boxes) > 0:
+                        if box_datasets[name].skipped_boxes[0] == idx:
+                            box_datasets[name].skipped_boxes.pop(0)
+                            continue
+
                     sents_cnt = int(line.strip())
                     article = Article()
 
@@ -77,9 +85,7 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb):
                     if len(article.sentences) != 0:
                         articles_datasets[name].add_article(article)
                     else:
-                        print("article %d was not added" % article_cnt)
-
-                    article_cnt += 1
+                        print("article %d was not added" % idx)
 
             print("[%s] %d / %d articles were added" % (name, len(articles_datasets[name].articles), article_cnt))
             print("Save articles dataset as binary")
@@ -111,26 +117,16 @@ def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
         if os.path.isfile(ib_processed_paths[name] + '.bin'):
             print("Loading %s Infobox dataset from %s ..." % (name, ib_processed_paths[name] + '.bin'))
             ib_datasets[name] = torch.load(ib_processed_paths[name] + '.bin')
-            # boxes_dataset = torch.load(ib_processed_paths[name] + '.bin')
             print("Dataset contains %d boxes" % len(ib_datasets[name].infoboxes))
         else:
             ib_datasets[name] = InfoboxRawDataset(label_dict)
-            # boxes_dataset = InfoboxRawDataset(label_dict)
 
             print("Preprocessing %s boxes" % name)
 
             with open(ib_paths[name], "r", encoding='utf-8') as boxes_file:
-                bytes_read = 0
-                total_bytes = os.path.getsize(ib_paths[name])
-                target_bytes = 0
                 infobox_cnt = 0
 
-                for line in boxes_file:
-                    if bytes_read >= target_bytes:
-                        print("progress %.3f" % (100.0 * (bytes_read / total_bytes)))
-                        target_bytes += total_bytes // 20
-
-                    bytes_read += len(line)
+                for idx, line in enumerate(tqdm(boxes_file, total=get_num_lines(ib_paths[name]))):
                     line = line.strip().split()
 
                     infobox = Infobox()
@@ -154,18 +150,23 @@ def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
                             if new_record:
                                 if box_record is not None:
                                     infobox.add_record(box_record)
+                                    box_record = None
 
-                                box_record = BoxRecord(match.group('label'))
+                                new_label = match.group('label')
+
+                                if -1 == new_label.lower().find('imag'):
+                                    box_record = BoxRecord(new_label)
 
                             if box_record is not None:
                                 box_record.add_word(match.group('value'))
 
-                    if len(box_record.content) != 0:
+                    if box_record is not None:
                         infobox.add_record(box_record)
 
                     if len(infobox.records) != 0:
                         ib_datasets[name].add_infobox(infobox)
                     else:
+                        ib_datasets[name].add_skipped(idx)
                         print("infobox %d was not added" % infobox_cnt)
 
                     infobox_cnt += 1
@@ -182,6 +183,8 @@ def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
 
         print("Finished preprocessing. %s dataset has %d boxes" % (name, len(ib_datasets[name].infoboxes)))
 
+    return ib_datasets
+
 
 def create_field_label_vocab(in_path, out_path):
     if os.path.isfile(out_path):
@@ -190,18 +193,9 @@ def create_field_label_vocab(in_path, out_path):
     else:
         print("Building vocabulary...")
         vocab = defaultdict(int)
-        bytes_read = 0
-        target_bytes = 0
-        total_bytes = os.path.getsize(in_path)
 
-        with open(in_path, "r") as box_file:
-            for idx, line in enumerate(box_file):
-                if bytes_read >= target_bytes:
-                    print("progress %.3f" % (100.0 * (bytes_read / total_bytes)))
-                    target_bytes += total_bytes // 20
-
-                bytes_read += len(line)
-
+        with open(in_path, "r", encoding='utf-8') as box_file:
+            for line in tqdm(box_file, total=get_num_lines(in_path)):
                 line = line.strip().split()
 
                 for item in line:
@@ -317,8 +311,8 @@ def preprocess(emb_dim, word_vocab_size):
                                dict_binpath=field_dict_path)
     bpe_dict = BpeWordDict.get(vocab=bpemb_en.words, dict_binpath=word_dict_path)
 
-    prepare_infobox_datasets(field_dict, bpemb_en)
-    prepare_articles_dataset(field_dict, bpemb_en)
+    box_datasets = prepare_infobox_datasets(field_dict, bpemb_en)
+    prepare_articles_dataset(field_dict, bpemb_en, box_datasets)
 
     create_mono_datasets(field_dict, bpemb_en)
 
@@ -331,3 +325,4 @@ def preprocess(emb_dim, word_vocab_size):
 
 if __name__ == '__main__':
     preprocess(300, 10000)
+

@@ -205,10 +205,14 @@ class ArticleRawDataset(object):
 class InfoboxRawDataset(object):
     def __init__(self, label_dict: LabelDict):
         self.infoboxes: List[Infobox] = []
+        self.skipped_boxes: List[int] = []
         self.label_dict = label_dict
 
     def add_infobox(self, infobox: Infobox):
         self.infoboxes.append(infobox)
+
+    def add_skipped(self, box_index):
+        self.skipped_boxes.append(box_index)
 
     def dump(self, dump_path, bpe: BPEmb, shuffle=0):
         with ExitStack() as stack:
