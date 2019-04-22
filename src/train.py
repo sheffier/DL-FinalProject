@@ -45,9 +45,13 @@ def main_train():
                                help='the source unaligned corpus (type,path). Type = text/table')
     corpora_group.add_argument('--trg_corpus_params', type=str, default='text, ./data/processed_data/train/train.article',
                                help='the target unaligned corpus (type,path). Type = text/table')
+    corpora_group.add_argument('--src_para_corpus_params', type=str, default='',
+                               help='the source corpus of parallel data(type,path). Type = text/table')
+    corpora_group.add_argument('--trg_para_corpus_params', type=str, default='',
+                               help='the target corpus of parallel data(type,path). Type = text/table')
     # Maybe add src/target type (i.e. text/table)
     corpora_group.add_argument('--corpus_mode', type=str, default='mono',
-                               help='training mode: "mono" (unsupervised) / "para" (supervised)')
+                               help='training mode: "mono" (unsupervised) / "para" (supervised) / "semi-mono"')
 
     corpora_group.add_argument('--max_sentence_length', type=int, default=50, help='the maximum sentence length for training (defaults to 50)')
     corpora_group.add_argument('--cache', type=int, default=100000, help='the cache size (in sentences) for corpus reading (defaults to 1000000)')
@@ -262,7 +266,7 @@ def main_train():
 
     discriminator = None
 
-    if (args.corpus_mode == 'mono') and not args.disable_discriminator:
+    if (args.corpus_mode in ['mono', 'semi-mono']) and not args.disable_discriminator:
         discriminator = Discriminator(args.hidden, args.dis_hidden, args.n_dis_layers, args.dropout)
         discriminator = discriminator.to(device)
 
@@ -315,7 +319,44 @@ def main_train():
     # Build trainers
     trainers = []
 
-    if args.corpus_mode == 'mono':
+    if args.corpus_mode in ['mono', 'semi-mono']:
+        if args.corpus_mode == 'semi-mono':
+            args.src_para_corpus_params = args.src_para_corpus_params.split(',')
+            args.trg_para_corpus_params = args.trg_para_corpus_params.split(',')
+            assert len(args.src_para_corpus_params) == 2
+            assert len(args.trg_para_corpus_params) == 2
+
+            src_para_type, src_para_corpus = args.src_para_corpus_params
+            trg_para_type, trg_para_corpus = args.trg_para_corpus_params
+
+            src_para_type = src_para_type.strip()
+            src_para_corpus = src_para_corpus.strip()
+            trg_para_type = trg_para_type.strip()
+            trg_para_corpus = trg_para_corpus.strip()
+
+            assert src_para_type != trg_para_type
+            assert (src_para_type in ['table', 'text']) and (trg_para_type in ['table', 'text'])
+
+            fsrc_content = open(src_para_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
+            fsrc_labels = open(src_para_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
+            ftrg_content = open(trg_para_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
+            ftrg_labels = open(trg_para_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
+            src_corpus = data.CorpusReader(fsrc_content, fsrc_labels, trg_word_file=ftrg_content,
+                                           trg_field_file=ftrg_labels,
+                                           max_sentence_length=args.max_sentence_length,
+                                           cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
+            src2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers, corpus=src_corpus,
+                                      batch_size=args.batch)
+            trainers.append(src2trg_trainer)
+
+            trg_corpus = data.CorpusReader(ftrg_content, ftrg_labels, trg_word_file=fsrc_content,
+                                           trg_field_file=fsrc_labels,
+                                           max_sentence_length=args.max_sentence_length,
+                                           cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
+            trg2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers, corpus=trg_corpus,
+                                      batch_size=args.batch)
+            trainers.append(trg2src_trainer)
+
         if args.src_corpus_params is not None:
             f_content = open(src_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
             f_labels = open(src_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
@@ -423,10 +464,27 @@ def main_train():
             torch.save(trg2src_translator, '{0}.{1}.trg2src.pth'.format(args.save, name))
 
     # Training
+    if args.corpus_mode == 'semi-mono':
+        for curr_iter in range(1, 1000):
+            print_dbg = (curr_iter % args.log_interval == 0)
+
+            for trainer in trainers[:2]:
+                trainer.step(print_dbg=print_dbg, include_field_loss=not args.disable_field_loss)
+
+            if print_dbg:
+                print()
+                print('PARA STEP {0} x {1}'.format(curr_iter, args.batch))
+                for logger in loggers:
+                    logger.log(curr_iter)
+
+        first_trainer = 2
+    else:
+        first_trainer = 0
+
     for curr_iter in range(1, args.iterations + 1):
         print_dbg = (curr_iter % args.log_interval == 0)
 
-        for trainer in trainers:
+        for trainer in trainers[first_trainer:]:
             trainer.step(print_dbg=print_dbg, include_field_loss=not args.disable_field_loss)
 
         if args.save is not None and args.save_interval > 0 and curr_iter % args.save_interval == 0:
