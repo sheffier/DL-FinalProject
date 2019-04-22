@@ -94,8 +94,6 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb, box_datasets):
 
         if os.path.isfile(article_processed_paths[name] + '.content') is False:
             articles_datasets[name].dump(article_processed_paths[name], bpe)
-        if os.path.isfile(article_processed_paths[name] + '.shuffle.content') is False:
-            articles_datasets[name].dump(article_processed_paths[name] + '.shuffle', bpe, shuffle=1)
 
         print("Finished preprocessing. %s dataset has %d articles" % (name, len(articles_datasets[name].articles)))
 
@@ -178,8 +176,6 @@ def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
 
         if os.path.isfile(ib_processed_paths[name] + '.content') is False:
             ib_datasets[name].dump(ib_processed_paths[name], bpe)
-        if os.path.isfile(ib_processed_paths[name] + '.shuffle.content') is False:
-            ib_datasets[name].dump(ib_processed_paths[name] + '.shuffle', bpe, shuffle=2)
 
         print("Finished preprocessing. %s dataset has %d boxes" % (name, len(ib_datasets[name].infoboxes)))
 
