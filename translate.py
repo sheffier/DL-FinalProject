@@ -146,7 +146,8 @@ def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, is_cp
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Translate using a pre-trained model')
-    parser.add_argument('--model', type=str, default='', help='a model previously trained with train.py')
+    parser.add_argument('--model', type=str, default='', help='a .pth model file previously trained with train.py')
+    parser.add_argument('--model_list', type=str, default='', help='a list of (space separated) model files')
     parser.add_argument('--batch_size', type=int, default=50, help='the batch size (defaults to 50)')
     parser.add_argument('--beam_size', type=int, default=0, help='the beam size (defaults to 12, 0 for greedy search)')
     parser.add_argument('--encoding', default='utf-8',
@@ -156,13 +157,14 @@ def main():
     parser.add_argument('--is_cpu', action='store_true')
     parser.add_argument('--prefix', type=str, default='MONO')
     parser.add_argument('--train_corpus_mode', type=str, default='MONO', help='MONO/PARA')
+    parser.add_argument('--direction', type=str, default='table2text', help='table2text/text2table')
 
     args = parser.parse_args()
 
-    metadataPath = config.PRC_TRAIN_DATA_PATH + '/metadata.bin'
-    assert os.path.isfile(metadataPath)
+    metadata_path = config.PRC_TRAIN_DATA_PATH + '/metadata.bin'
+    assert os.path.isfile(metadata_path)
 
-    metadata = torch.load(metadataPath)
+    metadata = torch.load(metadata_path)
     bpemb_en = metadata.init_bpe_module()
 
     currDir = pathlib.Path('.')
@@ -172,8 +174,16 @@ def main():
     test_basename = os.path.basename(args.testset_path)
     test_basedir = os.path.abspath(args.testset_path)
 
-    input_filepath = os.path.join(test_basedir, test_basename + '.box')
-    ref_path = os.path.join(test_basedir,  test_basename + '.article')
+    if args.direction == 'table2text':
+        in_suffix = '.box'
+        out_suffix = '.article'
+    else:
+        assert args.direction == 'text2table'
+        in_suffix = '.article'
+        out_suffix = '.box'
+
+    input_filepath = os.path.join(test_basedir, test_basename + in_suffix)
+    ref_path = os.path.join(test_basedir,  test_basename + out_suffix)
 
     if args.train_corpus_mode == 'MONO':
         input_filepath += '.mono'
@@ -202,8 +212,15 @@ def main():
         print("Ref file created!")
 
     if args.model == '':
-        model_files = sorted([currFile for currFile in currDir.glob(currPatt)],
-                             key=lambda x: int(re.search(r".it(?P<it>[\d]*)", str(x)).group('it')))
+        model_list_pathname = os.path.abspath(args.model_list)
+        if os.path.isfile(model_list_pathname):
+            with open(model_list_pathname, encoding=args.encoding, errors='surrogateescape') as model_list_file:
+                model_files = model_list_file.readlines()
+                assert len(model_files) == 1, "file should have a single line with space separated model files"
+                model_files = model_files.split()
+        else:
+            model_files = sorted([currFile for currFile in currDir.glob(currPatt)],
+                                 key=lambda x: int(re.search(r".it(?P<it>[\d]*)", str(x)).group('it')))
     else:
         model_files = [args.model]
 
@@ -220,10 +237,10 @@ def main():
 
     if args.model == '':
         if not args.is_cpu:
-            q.put('cuda:0')
-            q.put('cuda:1')
             q.put('cuda:2')
-            q.put('cuda:3')
+            q.put('cuda:4')
+            q.put('cuda:5')
+            q.put('cuda:6')
 
         results = [pool.apply_async(trans, args=(args, input_filepath, output_dir, ref_string_path,
                                                  model, bpemb_en, args.is_cpu, q)) for model in model_files]
