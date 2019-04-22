@@ -65,11 +65,8 @@ def load_model(model, device):
     return translator
 
 
-def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, is_cpu, que):
-    if is_cpu:
-        device = 'cpu'
-    else:
-        device = que.get()
+def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, que):
+    device = que.get()
 
     pid = os.getpid()
 
@@ -132,8 +129,7 @@ def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, is_cp
             elif len(content_batch) > 0:
                 pass
 
-    if not is_cpu:
-        que.put(device)
+    que.put(device)
 
     print("[DEVICE %s | PID %d | it %s] Evaluating BLEU" % (device, pid, model_it))
     result = eval_moses_bleu(ref_filepath, output_filepath + '.content')
@@ -154,7 +150,7 @@ def main():
                         help='the character encoding for input/output (defaults to utf-8)')
     parser.add_argument('--testset_path', type=str, default='./data/processed_data/valid',
                         help='test data path')
-    parser.add_argument('--is_cpu', action='store_true')
+    parser.add_argument('--device_list', type=str, default='cuda:0')
     parser.add_argument('--prefix', type=str, default='MONO')
     parser.add_argument('--train_corpus_mode', type=str, default='MONO', help='MONO/PARA')
     parser.add_argument('--direction', type=str, default='table2text', help='table2text/text2table')
@@ -226,24 +222,19 @@ def main():
 
     print("Number of models: %d" % (len(model_files)))
 
-    if args.is_cpu:
-        max_processes = 10
-    else:
-        max_processes = 4
+    device_list = args.device_list.split()
+    max_processes = len(device_list)
 
     pool = mp.Pool(processes=max_processes)
     m = mp.Manager()
     q = m.Queue()
 
     if args.model == '':
-        if not args.is_cpu:
-            q.put('cuda:2')
-            q.put('cuda:4')
-            q.put('cuda:5')
-            q.put('cuda:6')
+        for dev in device_list:
+            q.put(dev)
 
         results = [pool.apply_async(trans, args=(args, input_filepath, output_dir, ref_string_path,
-                                                 model, bpemb_en, args.is_cpu, q)) for model in model_files]
+                                                 model, bpemb_en, q)) for model in model_files]
         pool_outs = sorted([p.get() for p in results], key=lambda res: res[0])
 
         bleu_res_path = './data/processed_data/' + args.prefix + '_bleu_res_new.txt'
@@ -253,10 +244,9 @@ def main():
                 bleu_file.write(pool_out[1])
     else:
         q.put('cuda:0')
-        bleu_res = trans(args, input_filepath, output_dir, ref_string_path, model_files[0], bpemb_en,
-                         args.is_cpu, q)
+        bleu_res = trans(args, input_filepath, output_dir, ref_string_path, model_files[0], bpemb_en, q)
         print(bleu_res)
-        
+
 
 if __name__ == '__main__':
     main()
