@@ -479,7 +479,7 @@ def main_train():
     # Training
     if args.corpus_mode == 'semi-mono':
         for curr_iter in range(1, 12000):
-            print_dbg = (curr_iter % args.dbg_print_interval == 0)
+            print_dbg = (0 != args.dbg_print_interval) and (curr_iter % args.dbg_print_interval == 0)
 
             for trainer in trainers[:2]:
                 trainer.step(print_dbg=print_dbg, include_field_loss=not args.disable_field_loss)
@@ -494,7 +494,7 @@ def main_train():
         first_trainer = 0
 
     for curr_iter in range(1, args.iterations + 1):
-        print_dbg = (curr_iter % args.dbg_print_interval == 0)
+        print_dbg = (0 != args.dbg_print_interval) and (curr_iter % args.dbg_print_interval == 0)
 
         for trainer in trainers[first_trainer:]:
             trainer.step(print_dbg=print_dbg, include_field_loss=not args.disable_field_loss)
