@@ -20,6 +20,7 @@ import time
 import logging
 import torch
 import os
+import datetime
 
 import src.data as data
 from src.encoder import RNNEncoder
@@ -32,6 +33,7 @@ from torch import nn
 from contextlib import ExitStack
 from preprocess import preprocess
 from torch.nn import functional as F
+from tensorboardX import SummaryWriter
 
 
 def main_train():
@@ -99,7 +101,8 @@ def main_train():
 
     # Logging/validation
     logging_group = parser.add_argument_group('logging', 'Logging and validation arguments')
-    logging_group.add_argument('--log_interval', type=int, default=1000, help='log at this interval (defaults to 1000)')
+    logging_group.add_argument('--log_interval', type=int, default=100, help='log at this interval (defaults to 1000)')
+    logging_group.add_argument('--dbg_print_interval', type=int, default=1000, help='log at this interval (defaults to 1000)')
     logging_group.add_argument('--src_valid_corpus', type=str, default='./data/processed_data/valid/valid.box')
     logging_group.add_argument('--trg_valid_corpus', type=str, default='./data/processed_data/valid/valid.article')
     logging_group.add_argument('--validation', nargs='+', default=(), help='use parallel corpora for validation')
@@ -125,8 +128,6 @@ def main_train():
         logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
     else:
         logging.basicConfig(stream=sys.stderr, level=logging.CRITICAL)
-
-    print("Log every %d intervals" % args.log_interval)
 
     # Validate arguments
     if args.src_corpus_params is None or args.trg_corpus_params is None:
@@ -154,6 +155,10 @@ def main_train():
         device = torch.device(args.cuda)
     else:
         device = torch.device('cpu')
+
+    current_time = str(datetime.datetime.now().timestamp())
+    log_dir = 'logs/train/' + args.save + '/' + current_time
+    writer = SummaryWriter(log_dir)
 
     # Create optimizer lists
     src2src_optimizers = []
@@ -447,16 +452,21 @@ def main_train():
     semi_loggers = []
     if args.corpus_mode in ['mono', 'semi-mono']:
         loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, [], None,
-                              args.encoding))
+                              args.encoding, short_name='src2trg_bt', writer=writer))
         loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [], None,
-                              args.encoding))
-        loggers.append(Logger('Source to source', src2src_trainer, [], None, args.encoding))
-        loggers.append(Logger('Target to target', trg2trg_trainer, [], None, args.encoding))
+                              args.encoding, short_name='trg2src_bt', writer=writer))
+        loggers.append(Logger('Source to source', src2src_trainer, [], None, args.encoding,
+                              short_name='src2src', writer=writer))
+        loggers.append(Logger('Target to target', trg2trg_trainer, [], None, args.encoding,
+                              short_name='trg2trg', writer=writer))
         if args.corpus_mode == 'semi-mono':
-            semi_loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding))
-            semi_loggers.append(Logger('Target to source', trg2src_trainer, [], None, args.encoding))
+            semi_loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding,
+                                       short_name='src2trg_para', writer=writer))
+            semi_loggers.append(Logger('Target to source', trg2src_trainer, [], None, args.encoding,
+                                       short_name='trg2src_para', writer=writer))
     elif args.corpus_mode == 'para':
-        loggers.append(Logger('Source to target', src2trg_trainer, src2trg_validators, None, args.encoding))
+        loggers.append(Logger('Source to target', src2trg_trainer, src2trg_validators, None, args.encoding,
+                              short_name='src2trg_para', writer=writer))
 
     # Method to save models
     def save_models(name):
@@ -469,14 +479,13 @@ def main_train():
     # Training
     if args.corpus_mode == 'semi-mono':
         for curr_iter in range(1, 12000):
-            print_dbg = (curr_iter % args.log_interval == 0)
+            print_dbg = (curr_iter % args.dbg_print_interval == 0)
 
             for trainer in trainers[:2]:
                 trainer.step(print_dbg=print_dbg, include_field_loss=not args.disable_field_loss)
 
-            if print_dbg:
-                print()
-                print('PARA STEP {0} x {1}'.format(curr_iter, args.batch))
+            if curr_iter % args.log_interval == 0:
+                print('[{0}] PRE-TRAIN STEP {1} x {2}'.format(args.save, curr_iter, args.batch))
                 for logger in semi_loggers:
                     logger.log(curr_iter)
 
@@ -485,7 +494,7 @@ def main_train():
         first_trainer = 0
 
     for curr_iter in range(1, args.iterations + 1):
-        print_dbg = (curr_iter % args.log_interval == 0)
+        print_dbg = (curr_iter % args.dbg_print_interval == 0)
 
         for trainer in trainers[first_trainer:]:
             trainer.step(print_dbg=print_dbg, include_field_loss=not args.disable_field_loss)
@@ -493,13 +502,14 @@ def main_train():
         if args.save is not None and args.save_interval > 0 and curr_iter % args.save_interval == 0:
             save_models('it{0}'.format(curr_iter))
 
-        if print_dbg:
+        if curr_iter % args.log_interval == 0:
             print()
-            print('STEP {0} x {1}'.format(curr_iter, args.batch))
+            print('[{0}] TRAIN-STEP {1} x {2}'.format(args.save, curr_iter, args.batch))
             for logger in loggers:
                 logger.log(curr_iter)
 
     save_models('final')
+    writer.close()
 
 
 class DiscTrainer:
@@ -731,28 +741,39 @@ class Validator:
 
 
 class Logger:
-    def __init__(self, name, trainer, validators=(), output_prefix=None, encoding='utf-8'):
-        self.name = name
+    def __init__(self, full_name, trainer, validators=(), output_prefix=None, encoding='utf-8', short_name=None,
+                 writer=None):
+        self.full_name = full_name
+        self.short_name = short_name
         self.trainer = trainer
         self.validators = validators
+        self.writer = writer
         self.output_prefix = output_prefix
         self.encoding = encoding
 
     def log(self, step=0):
         if self.trainer is not None or len(self.validators) > 0:
-            print('{0}'.format(self.name))
+            print('{0}'.format(self.full_name))
         if self.trainer is not None:
             w_loss = self.trainer.word_loss / self.trainer.trg_word_count
             f_loss = self.trainer.field_loss / self.trainer.trg_word_count
             dis_loss = self.trainer.dis_loss / self.trainer.src_sent_batch_count
+            ppl = self.trainer.perplexity_per_word()
 
             print('  - Training:     pps {0:6.3f} | w_loss {1:3.4f} | f_loss {2:3.4f} | dis_loss {3:3.4f}'
                   '  (t_time {4:.2f}s io_time {5:.2f}s; fw_time {6:.2f}s; bw_time {7:.2f}s: '
                   '{8:.2f}tok/s src, {9:.2f}tok/s trg; epoch {10})'
-                  .format(self.trainer.perplexity_per_word(), w_loss, f_loss, dis_loss, self.trainer.total_time(),
+                  .format(ppl, w_loss, f_loss, dis_loss, self.trainer.total_time(),
                           self.trainer.io_time, self.trainer.forward_time, self.trainer.backward_time,
                           self.trainer.words_per_second()[0], self.trainer.words_per_second()[1], self.trainer.corpus.epoch))
             self.trainer.reset_stats()
+
+            if self.writer is not None:
+                self.writer.add_scalar(self.short_name + '/word_loss', w_loss, step)
+                self.writer.add_scalar(self.short_name + '/field_loss', f_loss, step)
+                self.writer.add_scalar(self.short_name + '/disc_loss', dis_loss, step)
+                self.writer.add_scalar(self.short_name + '/ppl', ppl, step)
+
         for id, validator in enumerate(self.validators):
             if self.trainer.corpus.validate:
                 t = time.time()
