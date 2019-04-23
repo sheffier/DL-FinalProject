@@ -120,12 +120,18 @@ def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, que):
                     labels_batch.append(labels_ids)
 
             if args.beam_size <= 0 and len(content_batch) > 0:
-                for idx, translation in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
-                    w_trans, f_trans = translation
+                for idx, (w_trans, f_trans) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
                     w_str_trans = bpemb_en.decode_ids(w_trans)
                     f_str_trans = " ".join([translator.trg_field_dict.id2word[field_idx] for field_idx in f_trans])
-                    fout_content.write(w_str_trans + '\n')
-                    fout_labels.write(f_str_trans + '\n')
+                    try:
+                        fout_content.write(w_str_trans + '\n')
+                        fout_labels.write(f_str_trans + '\n')
+                    except:
+                        print("Error in greedy decoding")
+                        print(w_str_trans)
+                        print(f_str_trans)
+                        fout_content.write('\n')
+                        fout_labels.write('\n')
             elif len(content_batch) > 0:
                 pass
 
@@ -164,7 +170,7 @@ def main():
     bpemb_en = metadata.init_bpe_module()
 
     currDir = pathlib.Path('.')
-    currPatt = "*" + args.prefix + ".it*.src2trg*"
+    currPatt = args.prefix + ".it*.src2trg*"
 
     assert os.path.isdir(args.testset_path), "{} is not a directory".format(args.testset_path)
     test_basename = os.path.basename(args.testset_path)
@@ -216,7 +222,7 @@ def main():
                 model_files = model_files.split()
         else:
             model_files = sorted([currFile for currFile in currDir.glob(currPatt)],
-                                 key=lambda x: int(re.search(r".it(?P<it>[\d]*)", str(x)).group('it')))
+                                 key=lambda x: int(re.search(r".it(?P<it>[\d]*)", str(x)).group('it')),reverse=True)
     else:
         model_files = [args.model]
 
