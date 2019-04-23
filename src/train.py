@@ -341,19 +341,19 @@ def main_train():
             fsrc_labels = open(src_para_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
             ftrg_content = open(trg_para_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
             ftrg_labels = open(trg_para_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
-            src_corpus = data.CorpusReader(fsrc_content, fsrc_labels, trg_word_file=ftrg_content,
+            src_para_corpus = data.CorpusReader(fsrc_content, fsrc_labels, trg_word_file=ftrg_content,
                                            trg_field_file=ftrg_labels,
                                            max_sentence_length=args.max_sentence_length,
                                            cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
-            src2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers, corpus=src_corpus,
+            src2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers, corpus=src_para_corpus,
                                       batch_size=args.batch)
             trainers.append(src2trg_trainer)
 
-            trg_corpus = data.CorpusReader(ftrg_content, ftrg_labels, trg_word_file=fsrc_content,
+            trg_para_corpus = data.CorpusReader(ftrg_content, ftrg_labels, trg_word_file=fsrc_content,
                                            trg_field_file=fsrc_labels,
                                            max_sentence_length=args.max_sentence_length,
                                            cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
-            trg2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers, corpus=trg_corpus,
+            trg2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers, corpus=trg_para_corpus,
                                       batch_size=args.batch)
             trainers.append(trg2src_trainer)
 
@@ -444,14 +444,17 @@ def main_train():
 
     # Build loggers
     loggers = []
-
-    if args.corpus_mode == 'mono':
+    semi_loggers = []
+    if args.corpus_mode in ['mono', 'semi-mono']:
         loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, [], None,
                               args.encoding))
         loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [], None,
                               args.encoding))
         loggers.append(Logger('Source to source', src2src_trainer, [], None, args.encoding))
         loggers.append(Logger('Target to target', trg2trg_trainer, [], None, args.encoding))
+        if args.corpus_mode == 'semi-mono':
+            semi_loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding))
+            semi_loggers.append(Logger('Target to source', trg2src_trainer, [], None, args.encoding))
     elif args.corpus_mode == 'para':
         loggers.append(Logger('Source to target', src2trg_trainer, src2trg_validators, None, args.encoding))
 
@@ -465,7 +468,7 @@ def main_train():
 
     # Training
     if args.corpus_mode == 'semi-mono':
-        for curr_iter in range(1, 1000):
+        for curr_iter in range(1, 12000):
             print_dbg = (curr_iter % args.log_interval == 0)
 
             for trainer in trainers[:2]:
@@ -474,7 +477,7 @@ def main_train():
             if print_dbg:
                 print()
                 print('PARA STEP {0} x {1}'.format(curr_iter, args.batch))
-                for logger in loggers:
+                for logger in semi_loggers:
                     logger.log(curr_iter)
 
         first_trainer = 2
