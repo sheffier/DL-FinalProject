@@ -34,6 +34,7 @@ from contextlib import ExitStack
 from preprocess import preprocess
 from torch.nn import functional as F
 from tensorboardX import SummaryWriter
+from src.utils import plot_grad_flow
 
 
 def main_train():
@@ -773,6 +774,9 @@ class Logger:
                 self.writer.add_scalar(self.short_name + '/field_loss', f_loss, step)
                 self.writer.add_scalar(self.short_name + '/disc_loss', dis_loss, step)
                 self.writer.add_scalar(self.short_name + '/ppl', ppl, step)
+
+            plot_grad_flow(self.trainer.translator.encoder.named_parameters())
+            plot_grad_flow(self.trainer.translator.decoder.named_parameters())
 
         for id, validator in enumerate(self.validators):
             if self.trainer.corpus.validate:
