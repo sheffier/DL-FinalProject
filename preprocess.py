@@ -33,7 +33,7 @@ class PreprocessMetadata(object):
         return BPEmb(lang="en", dim=self.emb_dim, vs=self.word_vocab_size)
 
 
-def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb, box_datasets):
+def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb, skipped_boxes):
     articles_datasets: Dict[str, ArticleRawDataset] = {'train': None,
                                                        'valid': None,
                                                        'test': None}
@@ -69,9 +69,9 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb, box_datasets):
                 for idx, line in enumerate(tqdm(f_sents_per_art, total=get_num_lines(sentences_paths[name]['sents_per_art']))):
                     article_cnt += 1
 
-                    if len(box_datasets[name].skipped_boxes) > 0:
-                        if box_datasets[name].skipped_boxes[0] == idx:
-                            box_datasets[name].skipped_boxes.pop(0)
+                    if len(skipped_boxes[name]) > 0:
+                        if skipped_boxes[name][0] == idx:
+                            skipped_boxes[name].pop(0)
                             continue
 
                     sents_cnt = int(line.strip())
@@ -97,6 +97,7 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb, box_datasets):
 
         print("Finished preprocessing. %s dataset has %d articles" % (name, len(articles_datasets[name].articles)))
 
+    del articles_datasets
 
 def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
     ib_datasets: Dict[str, InfoboxRawDataset] = {'train': None,
@@ -179,7 +180,13 @@ def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
 
         print("Finished preprocessing. %s dataset has %d boxes" % (name, len(ib_datasets[name].infoboxes)))
 
-    return ib_datasets
+    skipped_boxes = {'train': ib_datasets['train'].skipped_boxes,
+                     'valid': ib_datasets['valid'].skipped_boxes,
+                     'test': ib_datasets['test'].skipped_boxes}
+
+    del ib_datasets
+
+    return skipped_boxes
 
 
 def create_field_label_vocab(in_path, out_path):
@@ -307,8 +314,8 @@ def preprocess(emb_dim, word_vocab_size):
                                dict_binpath=field_dict_path)
     bpe_dict = BpeWordDict.get(vocab=bpemb_en.words, dict_binpath=word_dict_path)
 
-    box_datasets = prepare_infobox_datasets(field_dict, bpemb_en)
-    prepare_articles_dataset(field_dict, bpemb_en, box_datasets)
+    skipped_boxes = prepare_infobox_datasets(field_dict, bpemb_en)
+    prepare_articles_dataset(field_dict, bpemb_en, skipped_boxes)
 
     create_mono_datasets(field_dict, bpemb_en)
 
