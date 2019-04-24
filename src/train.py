@@ -105,12 +105,8 @@ def main_train():
     logging_group = parser.add_argument_group('logging', 'Logging and validation arguments')
     logging_group.add_argument('--log_interval', type=int, default=100, help='log at this interval (defaults to 1000)')
     logging_group.add_argument('--dbg_print_interval', type=int, default=1000, help='log at this interval (defaults to 1000)')
-    logging_group.add_argument('--src_valid_corpus', type=str, default='./data/processed_data/valid/valid.box')
-    logging_group.add_argument('--trg_valid_corpus', type=str, default='./data/processed_data/valid/valid.article')
-    logging_group.add_argument('--validation', nargs='+', default=(), help='use parallel corpora for validation')
-    logging_group.add_argument('--validation_directions', nargs='+', default=['src2src', 'trg2trg', 'src2trg', 'trg2src'], help='validation directions')
-    logging_group.add_argument('--validation_output', metavar='PREFIX', help='output validation translations with the given prefix')
-    logging_group.add_argument('--validation_beam_size', type=int, default=0, help='use beam search for validation')
+    logging_group.add_argument('--src_valid_corpus', type=str, default='')
+    logging_group.add_argument('--trg_valid_corpus', type=str, default='')
     logging_group.add_argument('--print_level', type=str, default='info', help='logging level [debug | info]')
 
     # Other
@@ -163,8 +159,10 @@ def main_train():
     current_time = str(datetime.datetime.now().timestamp())
     run_dir = 'run_' + current_time + '/'
     train_log_dir = 'logs/train/' + run_dir + args.save
+    valid_log_dir = 'logs/valid/' + run_dir + args.save
 
     train_writer = SummaryWriter(train_log_dir)
+    valid_writer = SummaryWriter(valid_log_dir)
 
     # Create optimizer lists
     src2src_optimizers = []
@@ -418,10 +416,7 @@ def main_train():
         trainers.append(src2trg_trainer)
 
     # Build validators
-    src2trg_validators = []
-    trg2src_validators = []
-
-    if 0:
+    if args.src_valid_corpus != '' and args.trg_valid_corpus != '':
         with ExitStack() as stack:
             src_content_vfile = stack.enter_context(open(args.src_valid_corpus + '.content', encoding=args.encoding,
                                                          errors='surrogateescape'))
@@ -436,19 +431,52 @@ def main_train():
             src_labels = src_labels_vfile.readlines()
             trg_content = trg_content_vfile.readlines()
             trg_labels = trg_labels_vfile.readlines()
-            if len(src_content) != len(trg_content) != len(src_labels) != len(trg_labels):
-                print('Validation sizes do not match')
-                sys.exit(-1)
+            assert len(src_content) == len(trg_content) == len(src_labels) == len(trg_labels), \
+                "Validation sizes do not match {} {} {} {}".format(len(src_content), len(trg_content), len(src_labels),
+                len(trg_labels))
 
-            src_content = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), src_content))
-            src_labels = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), src_labels))
-            trg_content = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), trg_content))
-            trg_labels = list(map(lambda x: list(map(lambda y: int(y), x.strip().split())), trg_labels))
+            src_content = [list(map(int, line.strip().split())) for line in src_content]
+            src_labels = [list(map(int, line.strip().split())) for line in src_labels]
+            trg_content = [list(map(int, line.strip().split())) for line in trg_content]
+            trg_labels = [list(map(int, line.strip().split())) for line in trg_labels]
 
-            src2trg_validators.append(Validator(src2trg_translator, src_content, trg_content,
-                                                src_labels, trg_labels, args.batch, 0))
-            trg2src_validators.append(Validator(trg2src_translator, trg_content, src_content,
-                                                trg_labels, src_labels, args.batch, 0))
+            cache = []
+            for src_sent, src_label, trg_sent, trg_label in zip(src_content, src_labels, trg_content, trg_labels):
+                if 0 < len(src_sent) <= args.max_sentence_length and 0 < len(trg_sent) <= args.max_sentence_length:
+                    cache.append((src_sent, src_label, trg_sent, trg_label))
+
+            src_content, src_labels, trg_content, trg_labels = zip(*cache)
+
+            src_eos_content, src_sos_content, ref_sos_content, ref_eos_content, src_eos_labels, src_sos_labels, \
+            ref_sos_labels, ref_eos_labels, src_sorted_lengths, ref_sorted_lengths \
+                = Validator.preprocess_dataset(src2trg_translator, src_content, trg_content, src_labels, trg_labels)
+
+            src2trg_validator = Validator(src2trg_translator, src_eos_content, ref_sos_content, ref_eos_content,
+                                          src_eos_labels, ref_sos_labels, ref_eos_labels,
+                                          src_sorted_lengths, ref_sorted_lengths, args.batch)
+
+            if args.corpus_mode in ['mono', 'semi-mono']:
+                src2src_validator = Validator(src2src_translator, src_eos_content, src_sos_content, src_eos_content,
+                                              src_eos_labels, src_sos_labels, src_eos_labels,
+                                              src_sorted_lengths, src_sorted_lengths, args.batch)
+
+                trg2src_validator = Validator(trg2src_translator, ref_eos_content, src_sos_content, src_eos_content,
+                                              ref_eos_labels, src_sos_labels, src_eos_labels,
+                                              ref_sorted_lengths, src_sorted_lengths, args.batch)
+
+                trg2trg_validator = Validator(trg2trg_translator, ref_eos_labels, ref_sos_labels, ref_eos_labels,
+                                              ref_eos_labels, ref_sos_labels, ref_eos_labels,
+                                              ref_sorted_lengths, ref_sorted_lengths, args.batch)
+
+            del src_content
+            del src_labels
+            del trg_content
+            del trg_labels
+    else:
+        src2src_validator = None
+        src2trg_validator = None
+        trg2src_validator = None
+        trg2trg_validator = None
 
     # Build loggers
     loggers = []
@@ -456,23 +484,25 @@ def main_train():
 
     if args.corpus_mode in ['mono', 'semi-mono']:
         if not args.disable_backtranslation:
-            loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, [],
-                                  None, args.encoding, short_name='src2trg_bt', train_writer=train_writer))
-            loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [],
-                                  None, args.encoding, short_name='trg2src_bt', train_writer=train_writer))
+            loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, src2trg_validator,
+                                  None, args.encoding, short_name='src2trg_bt', train_writer=train_writer,
+                                  valid_writer=valid_writer))
+            loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, trg2src_validator,
+                                  None, args.encoding, short_name='trg2src_bt', train_writer=train_writer,
+                                  valid_writer=valid_writer))
 
-        loggers.append(Logger('Source to source', src2src_trainer, [], None, args.encoding,
-                              short_name='src2src', train_writer=train_writer))
-        loggers.append(Logger('Target to target', trg2trg_trainer, [], None, args.encoding,
-                              short_name='trg2trg', train_writer=train_writer))
+        loggers.append(Logger('Source to source', src2src_trainer, src2src_validator, None, args.encoding,
+                              short_name='src2src', train_writer=train_writer, valid_writer=valid_writer))
+        loggers.append(Logger('Target to target', trg2trg_trainer, trg2trg_validator, None, args.encoding,
+                              short_name='trg2trg', train_writer=train_writer, valid_writer=valid_writer))
         if args.corpus_mode == 'semi-mono':
             semi_loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding,
-                                       short_name='src2trg_para', train_writer=train_writer))
+                                       short_name='src2trg_para', train_writer=train_writer, valid_writer=valid_writer))
             semi_loggers.append(Logger('Target to source', trg2src_trainer, [], None, args.encoding,
-                                       short_name='trg2src_para', train_writer=train_writer))
+                                       short_name='trg2src_para', train_writer=train_writer, valid_writer=valid_writer))
     elif args.corpus_mode == 'para':
-        loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding,
-                              short_name='src2trg_para', train_writer=train_writer))
+        loggers.append(Logger('Source to target', src2trg_trainer, src2trg_validator, None, args.encoding,
+                              short_name='src2trg_para', train_writer=train_writer, valid_writer=valid_writer))
 
     # Method to save models
     def save_models(name):
@@ -514,8 +544,16 @@ def main_train():
             for logger in loggers:
                 logger.log(curr_iter)
 
+        if curr_iter % iters_per_epoch == 0:
+            print()
+            print('[{0}] VALID-STEP {1}'.format(args.save, curr_iter))
+            for logger in loggers:
+                if logger.validator is not None:
+                    logger.validate(curr_iter)
+
     save_models('final')
     train_writer.close()
+    valid_writer.close()
 
 
 class DiscTrainer:
@@ -689,68 +727,150 @@ class Trainer:
 
 
 class Validator:
-    def __init__(self, translator, src_content, ref_content, src_labels, ref_labels, batch_size=50, beam_size=0):
-        self.translator = translator
+    def __init__(self, translator, src_content, ref_in_content, ref_out_content,
+                 src_labels, ref_in_labels, ref_out_labels, src_sorted_lengths, ref_sorted_lengths, batch_size=50):
         self.src_content = src_content
-        self.ref_content = ref_content
+        self.ref_in_content = ref_in_content
+        self.ref_out_content = ref_out_content
         self.src_labels = src_labels
-        self.ref_labels = ref_labels
-        self.sentence_count = len(src_content)
-        self.reference_word_count = sum([len(sentence) + 1 for sentence in self.ref_content])  # TODO Depends on special symbols EOS/SOS
+        self.ref_in_labels = ref_in_labels
+        self.ref_out_labels = ref_out_labels
+        self.src_sorted_lengths = src_sorted_lengths
+        self.ref_sorted_lengths = ref_sorted_lengths
+
+        self.translator = translator
         self.batch_size = batch_size
-        self.beam_size = beam_size
+        self.sentence_count = len(src_content)
 
-        # Sorting
-        lengths = [len(sentence) for sentence in self.src_content]
-        self.true2sorted = sorted(range(self.sentence_count), key=lambda x: -lengths[x])
-        self.sorted2true = sorted(range(self.sentence_count), key=lambda x: self.true2sorted[x])
-        self.sorted_src_content = [self.src_content[i] for i in self.true2sorted]
-        self.sorted_ref_content = [self.ref_content[i] for i in self.true2sorted]
-        self.sorted_src_labels = [self.src_labels[i] for i in self.true2sorted]
-        self.sorted_ref_labels = [self.ref_labels[i] for i in self.true2sorted]
+        self.ref_word_cnt = sum(ref_sorted_lengths)
 
-    def perplexity(self):
+    @staticmethod
+    def preprocess_dataset(translator, src_content, ref_content, src_labels, ref_labels):
+        sentence_count = len(src_content)
+        assert sentence_count == len(ref_content)
+
+        src_eos_content, src_eos_labels, src_lengths = translator.preprocess_ids(src_content, src_labels, train=False,
+                                                                                 sos=False, eos=True)
+        src_sos_content, src_sos_labels, _ = translator.preprocess_ids(src_content, src_labels, train=False,
+                                                                       sos=False, eos=True)
+        del src_content, src_labels
+        ref_sos_content, ref_sos_labels, ref_in_lengths = translator.preprocess_ids(ref_content, ref_labels, train=False,
+                                                                                    sos=True, eos=False)
+        ref_eos_content, ref_eos_labels, _ = translator.preprocess_ids(ref_content, ref_labels, train=False, sos=False,
+                                                                       eos=True)
+        del ref_content, ref_labels
+
+        true2sorted = sorted(range(sentence_count), key=lambda x: -src_lengths[x])
+        src_eos_content = [src_eos_content[i] for i in true2sorted]
+        src_sos_content = [src_sos_content[i] for i in true2sorted]
+        ref_sos_content = [ref_sos_content[i] for i in true2sorted]
+        ref_eos_content = [ref_eos_content[i] for i in true2sorted]
+        src_eos_labels = [src_eos_labels[i] for i in true2sorted]
+        src_sos_labels = [src_sos_labels[i] for i in true2sorted]
+        ref_sos_labels = [ref_sos_labels[i] for i in true2sorted]
+        ref_eos_labels = [ref_eos_labels[i] for i in true2sorted]
+        src_sorted_lengths = sorted(src_lengths, reverse=True)
+        ref_sorted_lengths = sorted(ref_in_lengths, reverse=True)
+
+        return src_eos_content, src_sos_content, ref_sos_content, ref_eos_content, src_eos_labels, src_sos_labels,\
+               ref_sos_labels, ref_eos_labels, src_sorted_lengths, ref_sorted_lengths
+
+    def encode(self, sents, sents_field, lengths, batch_size):
+        hidden = self.translator.encoder.initial_hidden(batch_size).to(self.translator.device)
+
+        hidden, context = self.translator.encoder(word_ids=sents, field_ids=sents_field, lengths=lengths,
+                                                  word_embeddings=self.translator.encoder_word_embeddings,
+                                                  field_embeddings=self.translator.encoder_field_embeddings,
+                                                  hidden=hidden)
+        return hidden, context, lengths
+
+    def decode(self, sents, sents_field, lengths, hidden, context, context_mask, batch_size):
+        initial_output = self.translator.decoder.initial_output(batch_size).to(self.translator.device)
+
+        word_logprobs, field_logprobs, hidden, _ = self.translator.decoder(sents, sents_field, lengths,
+                                                                           self.translator.decoder_word_embeddings,
+                                                                           self.translator.decoder_field_embeddings,
+                                                                           hidden, context, context_mask,
+                                                                           initial_output, self.translator.generator)
+
+        return word_logprobs, field_logprobs, hidden
+
+    def score(self, src_sents, trg_in_sents, trg_out_sents, src_field, trg_in_field, trg_out_field, src_lengths,
+              trg_lengths, batch_size):
+        hidden, context, context_lengths = self.encode(src_sents, src_field, src_lengths, batch_size)
+        context_mask = self.translator.mask(context_lengths)
+        if context_mask is not None:
+            context_mask = context_mask.to(self.translator.device)
+
+        word_logprobs, field_logprobs, hidden = self.decode(trg_in_sents, trg_in_field, trg_lengths, hidden, context,
+                                                            context_mask, batch_size)
+
+        word_loss = self.translator.word_criterion(word_logprobs.view(-1, word_logprobs.size()[-1]),
+                                                   trg_out_sents.view(-1))
+        field_loss = self.translator.field_criterion(field_logprobs.view(-1, field_logprobs.size()[-1]),
+                                                     trg_out_field.view(-1))
+
+        return word_loss, field_loss
+
+    @staticmethod
+    def to_tensor(sentences, sentences_field, device, batch_first=False):
+        with torch.no_grad():
+            if not batch_first:
+                var_sents = torch.LongTensor(sentences).transpose(1, 0).contiguous().to(device)
+                var_sents_field = torch.LongTensor(sentences_field).transpose(1, 0).contiguous().to(device)
+            else:
+                var_sents = torch.LongTensor(sentences).to(device)
+                var_sents_field = torch.LongTensor(sentences_field).to(device)
+
+        return var_sents, var_sents_field
+
+    def evaluate(self):
         w_loss = 0
         f_loss = 0
-        for i in range(0, self.sentence_count, self.batch_size):
-            j = min(i + self.batch_size, self.sentence_count)
-            word_loss, field_loss = self.translator.score(
-                self.sorted_src_content[i:j],
-                self.sorted_ref_content[i:j],
-                self.sorted_src_labels[i:j],
-                self.sorted_ref_labels[i:j],
-                print_dbg=False,
-                train=False)
-            w_loss += word_loss.item()
-            f_loss += field_loss.item()
-        return np.exp(w_loss/self.reference_word_count),\
-               np.exp(f_loss/self.reference_word_count)
+        with torch.no_grad():
+            for i in range(0, self.sentence_count, self.batch_size):
+                j = min(i + self.batch_size, self.sentence_count)
+                batch_size = j - i
 
-    def translate(self):
-        w_translations = []
-        f_translations = []
-        for i in range(0, self.sentence_count, self.batch_size):
-            j = min(i + self.batch_size, self.sentence_count)
-            content_batch = self.sorted_src_content[i:j]
-            labels_batch = self.sorted_src_labels[i:j]
-            if self.beam_size <= 0:
-                w_translation, f_translation = self.translator.greedy(content_batch, labels_batch, train=False)
-                w_translations.append(w_translation)
-                f_translations.append(f_translation)
-            else:
-                pass
-                # translations += self.translator.beam_search(batch, train=False, beam_size=self.beam_size)
-        return [w_translations[i] for i in self.sorted2true], [f_translations[i] for i in self.sorted2true]
+                # Torchify
+                src_content, src_labels = self.to_tensor(self.src_content[i:j], self.src_labels[i:j],
+                                                         self.translator.device)
+                ref_in_content, ref_in_labels = self.to_tensor(self.ref_in_content[i:j], self.ref_in_labels[i:j],
+                                                               self.translator.device)
+                ref_out_content, ref_out_labels = self.to_tensor(self.ref_out_content[i:j], self.ref_out_labels[i:j],
+                                                                 self.translator.device)
+                src_sorted_lengths = self.src_sorted_lengths[i:j]
+                ref_sorted_lengths = self.ref_sorted_lengths[i:j]
+
+                word_loss, field_loss = self.score(
+                    src_content,
+                    ref_in_content,
+                    ref_out_content,
+                    src_labels,
+                    ref_in_labels,
+                    ref_out_labels,
+                    src_sorted_lengths,
+                    ref_sorted_lengths,
+                    batch_size)
+
+                w_loss += word_loss.item()
+                f_loss += field_loss.item()
+
+        return w_loss / self.ref_word_cnt, f_loss / self.ref_word_cnt
+
+    def perplexity_per_word(self, avg_word_loss):
+        return np.exp(avg_word_loss)
 
 
 class Logger:
-    def __init__(self, full_name, trainer, validators=(), output_prefix=None, encoding='utf-8', short_name=None,
-                 train_writer=None, show_grad_flow=False):
+    def __init__(self, full_name, trainer, validator=None, output_prefix=None, encoding='utf-8', short_name=None,
+                 train_writer=None, valid_writer=None, show_grad_flow=False):
         self.full_name = full_name
         self.short_name = short_name
         self.trainer = trainer
-        self.validators = validators
+        self.validator = validator
         self.train_writer = train_writer
+        self.valid_writer = valid_writer
         self.show_grad_flow = show_grad_flow
         self.output_prefix = output_prefix
         self.encoding = encoding
@@ -782,16 +902,17 @@ class Logger:
             plot_grad_flow(self.trainer.translator.encoder.named_parameters())
             plot_grad_flow(self.trainer.translator.decoder.named_parameters())
 
-        for id, validator in enumerate(self.validators):
-            if self.trainer.corpus.validate:
-                t = time.time()
-                self.trainer.corpus.validate = False
-                w_pps, f_pps = validator.perplexity()
-                print('  - Validation: w_pps {0:10.3f}; f_pps{1:10.5f}  ({2:.2f}s)'.format(w_pps, f_pps, time.time() - t))
-                if self.output_prefix is not None:
-                    f = open('{0}.{1}.{2}.txt'.format(self.output_prefix, id, step), mode='w',
-                             encoding=self.encoding, errors='surrogateescape')
-                    for line in validator.translate():
-                        print(line, file=f)
-                    f.close()
         sys.stdout.flush()
+
+    def validate(self, step):
+        t = time.time()
+        avg_w_loss, avg_f_loss = self.validator.evaluate()
+        ppl = self.validator.perplexity_per_word(avg_w_loss)
+        t = time.time() - t
+        print('{0}'.format(self.full_name))
+        print('  - Validation: ppl {0:6.3f} | w_loss {1:3.4f} | f_loss {2:3.4f} | time {3:.2f}s'
+              .format(ppl, avg_w_loss, avg_f_loss, t))
+        if self.valid_writer is not None:
+            self.valid_writer.add_scalar(self.short_name + '/word_loss', avg_w_loss, step)
+            self.valid_writer.add_scalar(self.short_name + '/field_loss', avg_f_loss, step)
+            self.valid_writer.add_scalar(self.short_name + '/ppl', ppl, step)
