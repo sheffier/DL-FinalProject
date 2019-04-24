@@ -1,7 +1,7 @@
 import os
 import errno
 import matplotlib.pyplot as plt
-
+import numpy as np
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Project Root
 
