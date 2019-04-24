@@ -305,9 +305,12 @@ def preprocess(emb_dim, word_vocab_size):
     word_dict_path = config.PRC_TRAIN_DATA_PATH + "/word.dict"
 
     bpemb_en = BPEmb(lang="en", dim=emb_dim, vs=word_vocab_size)
+    print("Saving metadata")
+    torch.save(metadata, config.PRC_TRAIN_DATA_PATH + '/metadata.bin')
 
     metadata = PreprocessMetadata(emb_dim, word_vocab_size, word_dict_path, field_dict_path)
     metadata.init_bpe_module()
+
 
     field_vocab = create_field_label_vocab(box_file_path, field_vocab_path)
     field_dict = LabelDict.get(vocab=list(field_vocab),
