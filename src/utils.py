@@ -1,5 +1,6 @@
 import os
 import errno
+import mmap
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -46,3 +47,14 @@ def plot_grad_flow(named_parameters):
     plt.legend([plt.Line2D([0], [0], color="c", lw=4),
                 plt.Line2D([0], [0], color="b", lw=4),
                 plt.Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
+    plt.show()
+
+
+def get_num_lines(file_path):
+    with open(file_path, "r+") as fp:
+        buf = mmap.mmap(fp.fileno(), 0)
+        lines = 0
+        while buf.readline():
+            lines += 1
+
+    return lines

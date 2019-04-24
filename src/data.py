@@ -18,6 +18,7 @@ import os
 import torch
 import numpy as np
 import collections
+import itertools
 from bpemb import BPEmb
 from contextlib import ExitStack
 from typing import List, Dict
@@ -194,7 +195,7 @@ class ArticleRawDataset(object):
                 article = self.articles[ind]
                 sent_cnt = min(max_sents, len(article.sentences))
 
-                flat_sents = [word for sentence in article.sentences[:sent_cnt] for word in sentence]
+                flat_sents = list(itertools.chain.from_iterable(article.sentences[:sent_cnt]))
                 sent_bpe_ids = [str(bpe_id) for bpe_id in bpe.encode_ids(" ".join(flat_sents))]
                 label_ids = [str(self.label_dict.null_index)] * len(sent_bpe_ids)
 
@@ -263,14 +264,12 @@ class CorpusReader:
         self.src_field_file = src_field_file
         self.trg_word_file = trg_word_file
         self.trg_field_file = trg_field_file
-        self.epoch = 1
         self.pending = set()
         self.length2pending = collections.defaultdict(set)
         self.next = 0
         self.cache = []
         self.cache_size = cache_size
         self.max_sentence_length = max_sentence_length
-        self.validate = False
 
     def _fill_cache(self):
         self.next = 0
@@ -280,10 +279,6 @@ class CorpusReader:
 
         print("Cache occupancy %d/%d. Filling cache..." % (len(self.cache), self.cache_size))
         while len(self.cache) < self.cache_size:
-            # try:
-            #     line = readline()
-            # except StopIteration:
-            #     line =''
             src_word = self.src_word_file.readline()
             src_field = self.src_field_file.readline()
             trg_word = self.trg_word_file.readline() if self.trg_word_file is not None else src_word
@@ -294,11 +289,6 @@ class CorpusReader:
             trg_word_ids = [int(id) for id in trg_word.strip().split()]
             trg_field_ids = [int(id) for id in trg_field.strip().split()]
 
-            # src_length = len(tokenize(src_word))
-            # trg_length = len(tokenize(trg_word))
-            # assert src_length == len(tokenize(src_field))
-            # assert trg_length == len(tokenize(trg_field))
-
             src_length = len(src_word_ids)
             trg_length = len(trg_word_ids)
 
@@ -306,7 +296,6 @@ class CorpusReader:
             assert trg_length == len(trg_field_ids)
 
             if src_word == '' and trg_word == '':
-                self.epoch += 1
                 self.src_word_file.seek(0)
                 self.src_field_file.seek(0)
                 if self.trg_word_file is not None:
@@ -352,7 +341,8 @@ class CorpusReader:
                 self.pending.remove(index)
                 indices.append(index)
             except KeyError:
-                candidates = [(self._score_length(k[0], k[1], src_min, src_max, trg_min, trg_max), k) for k, v in self.length2pending.items() if len(v) > 0]
+                candidates = [(self._score_length(k[0], k[1], src_min, src_max, trg_min, trg_max), k)
+                              for k, v in self.length2pending.items() if len(v) > 0]
                 target_length = min(candidates)[1]
                 src_min = min(src_min, target_length[0])
                 src_max = max(src_max, target_length[0])
@@ -372,16 +362,12 @@ class CorpusReader:
         ret_trg_sents_field = [self.cache[i][4] for i in indices]
 
         return ret_src_sents, ret_trg_sents, ret_src_sents_field, ret_trg_sents_field
-        # return [self.cache[i][1] for i in indices], [self.cache[i][2] for i in indices],\
-        #        [self.cache[i][3] for i in indices], [self.cache[i][4] for i in indices],
 
 
 class BacktranslatorCorpusReader:
     def __init__(self, corpus, translator, beam_size=0):
         self.corpus = corpus
         self.translator = translator
-        self.epoch = corpus.epoch
-        self.validate = False
         self.beam_size = beam_size
 
     def next_batch(self, size):
@@ -392,12 +378,4 @@ class BacktranslatorCorpusReader:
             src_word, src_field = self.translator.beam_search(trg_word, trg_field, beam_size=self.beam_size,
                                                               train=False)
 
-        if self.corpus.epoch > self.epoch:
-            self.validate = True
-
-        self.epoch = self.corpus.epoch
         return src_word, trg_word, src_field, trg_field
-
-
-def tokenize(sentence):
-    return sentence.strip().split()

@@ -11,15 +11,7 @@ from src.data import LabelDict, BpeWordDict, ArticleRawDataset, InfoboxRawDatase
 from collections import defaultdict
 from src.utils import safe_mkdir
 from tqdm import tqdm
-
-
-def get_num_lines(file_path):
-    fp = open(file_path, "r+")
-    buf = mmap.mmap(fp.fileno(), 0)
-    lines = 0
-    while buf.readline():
-        lines += 1
-    return lines
+from src.utils import get_num_lines
 
 
 class PreprocessMetadata(object):
@@ -78,7 +70,7 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb, skipped_boxes):
                     article = Article()
 
                     for cnt in range(sents_cnt):
-                        sentence = f_sents.readline()
+                        sentence = f_sents.readline().strip()
 
                         article.add_sentence(sentence)
 
@@ -94,8 +86,7 @@ def prepare_articles_dataset(label_dict: LabelDict, bpe: BPEmb, skipped_boxes):
 
         if os.path.isfile(article_processed_paths[name] + '.content') is False:
             articles_datasets[name].dump(article_processed_paths[name], bpe)
-
-        print("Finished preprocessing. %s dataset has %d articles" % (name, len(articles_datasets[name].articles)))
+            print("Finished preprocessing. %s dataset has %d articles" % (name, len(articles_datasets[name].articles)))
 
     del articles_datasets
 
@@ -177,8 +168,7 @@ def prepare_infobox_datasets(label_dict: LabelDict, bpe: BPEmb):
 
         if os.path.isfile(ib_processed_paths[name] + '.content') is False:
             ib_datasets[name].dump(ib_processed_paths[name], bpe)
-
-        print("Finished preprocessing. %s dataset has %d boxes" % (name, len(ib_datasets[name].infoboxes)))
+            print("Finished preprocessing. %s dataset has %d boxes" % (name, len(ib_datasets[name].infoboxes)))
 
     skipped_boxes = {'train': ib_datasets['train'].skipped_boxes,
                      'valid': ib_datasets['valid'].skipped_boxes,
@@ -224,6 +214,8 @@ def create_mono_datasets(label_dict: LabelDict, bpe):
     article_para_ds = {'train': config.PRC_TRAIN_DATA_PATH + "/train.article.bin",
                         'valid': config.PRC_VALID_DATA_PATH + "/valid.article.bin",
                         'test': config.PRC_TEST_DATA_PATH + "/test.article.bin"}
+
+    print("Creating mono datasets")
 
     all_infoboxes = InfoboxRawDataset(label_dict)
 

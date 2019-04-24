@@ -25,7 +25,6 @@ class RNNAttentionDecoder(nn.Module):
         self.batch_first = batch_first
         self.layers = layers
         self.hidden_size = hidden_size
-        # self.special_embeddings = nn.Embedding(data.SPECIAL_SYMBOLS+1, word_embedding_size, padding_idx=0)
         self.attention = GlobalAttention(hidden_size, alignment_function='general')
         self.input_feeding = input_feeding
         self.input_size = word_embedding_size + field_embedding_size

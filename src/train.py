@@ -35,6 +35,7 @@ from preprocess import preprocess
 from torch.nn import functional as F
 from tensorboardX import SummaryWriter
 from src.utils import plot_grad_flow
+from src.utils import get_num_lines
 
 
 def main_train():
@@ -140,16 +141,18 @@ def main_train():
     assert len(args.src_corpus_params) == 2
     assert len(args.trg_corpus_params) == 2
 
-    src_type, src_corpus = args.src_corpus_params
-    trg_type, trg_corpus = args.trg_corpus_params
+    src_type, src_corpus_path = args.src_corpus_params
+    trg_type, trg_corpus_path = args.trg_corpus_params
 
     src_type = src_type.strip()
-    src_corpus = src_corpus.strip()
+    src_corpus_path = src_corpus_path.strip()
     trg_type = trg_type.strip()
-    trg_corpus = trg_corpus.strip()
+    trg_corpus_path = trg_corpus_path.strip()
 
     assert src_type != trg_type
     assert (src_type in ['table', 'text']) and (trg_type in ['table', 'text'])
+
+    corpus_size = get_num_lines(src_corpus_path + '.content')
 
     # Select device
     if torch.cuda.is_available():
@@ -158,8 +161,10 @@ def main_train():
         device = torch.device('cpu')
 
     current_time = str(datetime.datetime.now().timestamp())
-    log_dir = 'logs/train/' + args.save + '/' + current_time
-    writer = SummaryWriter(log_dir)
+    run_dir = 'run_' + current_time + '/'
+    train_log_dir = 'logs/train/' + run_dir + args.save
+
+    train_writer = SummaryWriter(train_log_dir)
 
     # Create optimizer lists
     src2src_optimizers = []
@@ -324,6 +329,7 @@ def main_train():
 
     # Build trainers
     trainers = []
+    iters_per_epoch = int(np.ceil(args.iterations / corpus_size))
 
     if args.corpus_mode in ['mono', 'semi-mono']:
         if args.corpus_mode == 'semi-mono':
@@ -363,56 +369,52 @@ def main_train():
                                       batch_size=args.batch)
             trainers.append(trg2src_trainer)
 
-        if args.src_corpus_params is not None:
-            f_content = open(src_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
-            f_labels = open(src_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
-            src_corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
-                                           cache_size=args.cache)
-
-        if args.trg_corpus_params is not None:
-            f_content = open(trg_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
-            f_labels = open(trg_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
-            trg_corpus = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
-                                           cache_size=args.cache)
+        f_content = open(src_corpus_path + '.content', encoding=args.encoding, errors='surrogateescape')
+        f_labels = open(src_corpus_path + '.labels', encoding=args.encoding, errors='surrogateescape')
+        src_corpus_path = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
+                                       cache_size=args.cache)
+        f_content = open(trg_corpus_path + '.content', encoding=args.encoding, errors='surrogateescape')
+        f_labels = open(trg_corpus_path + '.labels', encoding=args.encoding, errors='surrogateescape')
+        trg_corpus_path = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
+                                       cache_size=args.cache)
 
         if not args.disable_discriminator:
-            disc_trainer = DiscTrainer(device, src_corpus, trg_corpus, src_enc, trg_enc, src_encoder_word_embeddings,
+            disc_trainer = DiscTrainer(device, src_corpus_path, trg_corpus_path, src_enc, trg_enc, src_encoder_word_embeddings,
                                        src_encoder_field_embeddings, word_dict, field_dict, discriminator,
                                        args.learning_rate, batch_size=args.batch)
             trainers.append(disc_trainer)
 
-        if args.src_corpus_params is not None:
-            src2src_trainer = Trainer(translator=src2src_translator, optimizers=src2src_optimizers, corpus=src_corpus,
-                                      batch_size=args.batch)
-            trainers.append(src2src_trainer)
-            if not args.disable_backtranslation:
-                trgback2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers,
-                                              corpus=data.BacktranslatorCorpusReader(corpus=src_corpus,
-                                                                                     translator=src2trg_translator,
-                                                                                     beam_size=args.beam_size),
-                                              batch_size=args.batch)
-                trainers.append(trgback2src_trainer)
-        if args.trg_corpus_params is not None:
-            trg2trg_trainer = Trainer(translator=trg2trg_translator, optimizers=trg2trg_optimizers, corpus=trg_corpus,
-                                      batch_size=args.batch)
-            trainers.append(trg2trg_trainer)
-            if not args.disable_backtranslation:
-                srcback2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers,
-                                              corpus=data.BacktranslatorCorpusReader(corpus=trg_corpus,
-                                                                                     translator=trg2src_translator,
-                                                                                     beam_size=args.beam_size),
-                                              batch_size=args.batch)
-                trainers.append(srcback2trg_trainer)
+        src2src_trainer = Trainer(translator=src2src_translator, optimizers=src2src_optimizers, corpus=src_corpus_path,
+                                  batch_size=args.batch, iters_per_epoch=iters_per_epoch)
+        trainers.append(src2src_trainer)
+        if not args.disable_backtranslation:
+            trgback2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers,
+                                          corpus=data.BacktranslatorCorpusReader(corpus=src_corpus_path,
+                                                                                 translator=src2trg_translator,
+                                                                                 beam_size=args.beam_size),
+                                          batch_size=args.batch, iters_per_epoch=iters_per_epoch)
+            trainers.append(trgback2src_trainer)
+
+        trg2trg_trainer = Trainer(translator=trg2trg_translator, optimizers=trg2trg_optimizers, corpus=trg_corpus_path,
+                                  batch_size=args.batch, iters_per_epoch=iters_per_epoch)
+        trainers.append(trg2trg_trainer)
+        if not args.disable_backtranslation:
+            srcback2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers,
+                                          corpus=data.BacktranslatorCorpusReader(corpus=trg_corpus_path,
+                                                                                 translator=trg2src_translator,
+                                                                                 beam_size=args.beam_size),
+                                          batch_size=args.batch, iters_per_epoch=iters_per_epoch)
+            trainers.append(srcback2trg_trainer)
     elif args.corpus_mode == 'para':
-        fsrc_content = open(src_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
-        fsrc_labels = open(src_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
-        ftrg_content = open(trg_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
-        ftrg_labels = open(trg_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
+        fsrc_content = open(src_corpus_path + '.content', encoding=args.encoding, errors='surrogateescape')
+        fsrc_labels = open(src_corpus_path + '.labels', encoding=args.encoding, errors='surrogateescape')
+        ftrg_content = open(trg_corpus_path + '.content', encoding=args.encoding, errors='surrogateescape')
+        ftrg_labels = open(trg_corpus_path + '.labels', encoding=args.encoding, errors='surrogateescape')
         corpus = data.CorpusReader(fsrc_content, fsrc_labels, trg_word_file=ftrg_content, trg_field_file=ftrg_labels,
                                    max_sentence_length=args.max_sentence_length,
                                    cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
         src2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers, corpus=corpus,
-                                  batch_size=args.batch)
+                                  batch_size=args.batch, iters_per_epoch=iters_per_epoch)
         trainers.append(src2trg_trainer)
 
     # Build validators
@@ -451,23 +453,26 @@ def main_train():
     # Build loggers
     loggers = []
     semi_loggers = []
+
     if args.corpus_mode in ['mono', 'semi-mono']:
-        loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, [], None,
-                              args.encoding, short_name='src2trg_bt', writer=writer))
-        loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [], None,
-                              args.encoding, short_name='trg2src_bt', writer=writer))
+        if not args.disable_backtranslation:
+            loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, [],
+                                  None, args.encoding, short_name='src2trg_bt', train_writer=train_writer))
+            loggers.append(Logger('Target to source (backtranslation)', trgback2src_trainer, [],
+                                  None, args.encoding, short_name='trg2src_bt', train_writer=train_writer))
+
         loggers.append(Logger('Source to source', src2src_trainer, [], None, args.encoding,
-                              short_name='src2src', writer=writer))
+                              short_name='src2src', train_writer=train_writer))
         loggers.append(Logger('Target to target', trg2trg_trainer, [], None, args.encoding,
-                              short_name='trg2trg', writer=writer))
+                              short_name='trg2trg', train_writer=train_writer))
         if args.corpus_mode == 'semi-mono':
             semi_loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding,
-                                       short_name='src2trg_para', writer=writer))
+                                       short_name='src2trg_para', train_writer=train_writer))
             semi_loggers.append(Logger('Target to source', trg2src_trainer, [], None, args.encoding,
-                                       short_name='trg2src_para', writer=writer))
+                                       short_name='trg2src_para', train_writer=train_writer))
     elif args.corpus_mode == 'para':
-        loggers.append(Logger('Source to target', src2trg_trainer, src2trg_validators, None, args.encoding,
-                              short_name='src2trg_para', writer=writer))
+        loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding,
+                              short_name='src2trg_para', train_writer=train_writer))
 
     # Method to save models
     def save_models(name):
@@ -510,7 +515,7 @@ def main_train():
                 logger.log(curr_iter)
 
     save_models('final')
-    writer.close()
+    train_writer.close()
 
 
 class DiscTrainer:
@@ -568,11 +573,7 @@ class DiscTrainer:
                 var_wordids = torch.LongTensor(word_ids).to(self.device)
                 var_fieldids = torch.LongTensor(field_ids).to(self.device)
 
-            # logger.debug('enc: word_ids are on cuda: %d', var_wordids.is_cuda)
-            # logger.debug('enc: field_ids are on cuda: %d', var_fieldids.is_cuda)
-
         hidden = encoder.initial_hidden(len(sentences)).to(self.device)
-        # logger.debug('hidden is on cuda: %d', hidden.is_cuda)
 
         hidden, context = encoder(word_ids=var_wordids, field_ids=var_fieldids, lengths=lengths,
                                   word_embeddings=self.encoder_word_embeddings,
@@ -618,11 +619,12 @@ class DiscTrainer:
 
 
 class Trainer:
-    def __init__(self, corpus, optimizers, translator, batch_size=50):
+    def __init__(self, corpus, optimizers, translator, batch_size=50, iters_per_epoch=1):
         self.corpus = corpus
         self.translator = translator
         self.optimizers = optimizers
         self.batch_size = batch_size
+        self.iters_per_epoch = iters_per_epoch
         self.reset_stats()
 
     def step(self, print_dbg=False, include_field_loss=True):
@@ -743,38 +745,40 @@ class Validator:
 
 class Logger:
     def __init__(self, full_name, trainer, validators=(), output_prefix=None, encoding='utf-8', short_name=None,
-                 writer=None):
+                 train_writer=None, show_grad_flow=False):
         self.full_name = full_name
         self.short_name = short_name
         self.trainer = trainer
         self.validators = validators
-        self.writer = writer
+        self.train_writer = train_writer
+        self.show_grad_flow = show_grad_flow
         self.output_prefix = output_prefix
         self.encoding = encoding
 
     def log(self, step=0):
-        if self.trainer is not None or len(self.validators) > 0:
-            print('{0}'.format(self.full_name))
-        if self.trainer is not None:
-            w_loss = self.trainer.word_loss / self.trainer.trg_word_count
-            f_loss = self.trainer.field_loss / self.trainer.trg_word_count
-            dis_loss = self.trainer.dis_loss / self.trainer.src_sent_batch_count
-            ppl = self.trainer.perplexity_per_word()
+        w_loss = self.trainer.word_loss / self.trainer.trg_word_count
+        f_loss = self.trainer.field_loss / self.trainer.trg_word_count
+        dis_loss = self.trainer.dis_loss / self.trainer.src_sent_batch_count
+        ppl = self.trainer.perplexity_per_word()
+        epoch = int(np.ceil(step / self.trainer.iters_per_epoch))
 
-            print('  - Training:     pps {0:6.3f} | w_loss {1:3.4f} | f_loss {2:3.4f} | dis_loss {3:3.4f}'
-                  '  (t_time {4:.2f}s io_time {5:.2f}s; fw_time {6:.2f}s; bw_time {7:.2f}s: '
-                  '{8:.2f}tok/s src, {9:.2f}tok/s trg; epoch {10})'
-                  .format(ppl, w_loss, f_loss, dis_loss, self.trainer.total_time(),
-                          self.trainer.io_time, self.trainer.forward_time, self.trainer.backward_time,
-                          self.trainer.words_per_second()[0], self.trainer.words_per_second()[1], self.trainer.corpus.epoch))
-            self.trainer.reset_stats()
+        print('{0}'.format(self.full_name))
+        print('  - Training:     ppl {0:6.3f} | w_loss {1:3.4f} | f_loss {2:3.4f} | dis_loss {3:3.4f}'
+              '  (t_time {4:.2f}s io_time {5:.2f}s; fw_time {6:.2f}s; bw_time {7:.2f}s: '
+              '{8:.2f}tok/s src, {9:.2f}tok/s trg; epoch {10})'
+              .format(ppl, w_loss, f_loss, dis_loss, self.trainer.total_time(),
+                      self.trainer.io_time, self.trainer.forward_time, self.trainer.backward_time,
+                      self.trainer.words_per_second()[0], self.trainer.words_per_second()[1],
+                      epoch))
+        self.trainer.reset_stats()
 
-            if self.writer is not None:
-                self.writer.add_scalar(self.short_name + '/word_loss', w_loss, step)
-                self.writer.add_scalar(self.short_name + '/field_loss', f_loss, step)
-                self.writer.add_scalar(self.short_name + '/disc_loss', dis_loss, step)
-                self.writer.add_scalar(self.short_name + '/ppl', ppl, step)
+        if self.train_writer is not None:
+            self.train_writer.add_scalar(self.short_name + '/word_loss', w_loss, step)
+            self.train_writer.add_scalar(self.short_name + '/field_loss', f_loss, step)
+            self.train_writer.add_scalar(self.short_name + '/disc_loss', dis_loss, step)
+            self.train_writer.add_scalar(self.short_name + '/ppl', ppl, step)
 
+        if self.show_grad_flow:
             plot_grad_flow(self.trainer.translator.encoder.named_parameters())
             plot_grad_flow(self.trainer.translator.decoder.named_parameters())
 

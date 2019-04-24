@@ -28,7 +28,6 @@ class RNNEncoder(nn.Module):
         self.batch_first = batch_first
         self.layers = layers
         self.hidden_size = hidden_size // self.directions
-        # self.special_embeddings = nn.Embedding(data.SPECIAL_SYMBOLS+1, word_embedding_size, padding_idx=0)
         self.rnn = nn.GRU(word_embedding_size + field_embedding_size, self.hidden_size, bidirectional=bidirectional,
                           num_layers=layers, dropout=dropout, batch_first=batch_first)
 
@@ -42,9 +41,9 @@ class RNNEncoder(nn.Module):
             word_ids = torch.stack([word_ids[:, i] for i in true2sorted], dim=1)
             field_ids = torch.stack([field_ids[:, i] for i in true2sorted], dim=1)
             lengths = [lengths[i] for i in true2sorted]
-        w_embeddings = word_embeddings(word_ids)  # + self.special_embeddings(data.special_ids(word_ids))
-        f_embeddings = field_embeddings(field_ids)  # + self.special_embeddings(data.special_ids(word_ids))
-        embeddings = torch.cat([w_embeddings, f_embeddings], 2)   # ????
+        w_embeddings = word_embeddings(word_ids)
+        f_embeddings = field_embeddings(field_ids)
+        embeddings = torch.cat([w_embeddings, f_embeddings], 2)
         if is_varlen:
             embeddings = nn.utils.rnn.pack_padded_sequence(embeddings, lengths, batch_first=self.batch_first)
 
