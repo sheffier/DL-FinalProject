@@ -327,7 +327,8 @@ def main_train():
 
     # Build trainers
     trainers = []
-    iters_per_epoch = int(np.ceil(args.iterations / corpus_size))
+    iters_per_epoch = int(np.ceil(corpus_size / args.batch))
+    print("CORPUS_SIZE = %d | BATCH_SIZE = %d | ITERS_PER_EPOCH = %d" % (corpus_size, args.batch_size, iters_per_epoch))
 
     if args.corpus_mode in ['mono', 'semi-mono']:
         if args.corpus_mode == 'semi-mono':
