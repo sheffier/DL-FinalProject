@@ -545,6 +545,7 @@ def main_train():
                 logger.log(curr_iter)
 
         if curr_iter % iters_per_epoch == 0:
+            save_models('it{0}'.format(curr_iter))
             print()
             print('[{0}] VALID-STEP {1}'.format(args.save, curr_iter))
             for logger in loggers:
