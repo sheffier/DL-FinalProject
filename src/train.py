@@ -719,7 +719,7 @@ class Trainer:
         self.dis_loss = 0
 
     def perplexity_per_word(self):
-        return np.exp(self.word_loss/self.trg_word_count)
+        return np.exp2(self.word_loss/self.trg_word_count/np.log(2))
 
     def total_time(self):
         return self.io_time + self.forward_time + self.backward_time
@@ -861,7 +861,7 @@ class Validator:
         return w_loss / self.ref_word_cnt, f_loss / self.ref_word_cnt
 
     def perplexity_per_word(self, avg_word_loss):
-        return np.exp(avg_word_loss)
+        return np.exp2(avg_word_loss/np.log(2))
 
 
 class Logger:
