@@ -32,8 +32,10 @@ class RNNEncoder(nn.Module):
                           num_layers=layers, dropout=dropout, batch_first=batch_first)
 
     def forward(self, word_ids, field_ids, lengths, word_embeddings, field_embeddings, hidden):
-        sorted_lengths = sorted(lengths, reverse=True)
-        is_sorted = sorted_lengths == lengths
+        # sorted_lengths = sorted(lengths, reverse=True)
+        # is_sorted = sorted_lengths == lengths
+        sorted_lengths = lengths.sort(descending=True)[0]
+        is_sorted = torch.all(torch.eq(sorted_lengths, lengths)).item()
         is_varlen = sorted_lengths[0] != sorted_lengths[-1]
         if not is_sorted:
             true2sorted = sorted(range(len(lengths)), key=lambda x: -lengths[x])

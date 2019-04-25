@@ -36,9 +36,10 @@ SPECIAL_WORD_SYMS = 5
 
 
 class Dictionary(object):
-    def __init__(self, word2id: Dict, id2word: Dict):
+    def __init__(self, word2id: Dict, id2word: Dict, pad='<pad>', eos='</s>', unk='<unk>'):
         self.word2id = word2id
         self.id2word = id2word
+        self.unk_word = unk
 
     @staticmethod
     def _vocab2dict(vocab: List):
@@ -47,6 +48,11 @@ class Dictionary(object):
     def __len__(self):
         """Returns the number of words in the dictionary"""
         return len(self.id2word)
+
+    def __getitem__(self, idx):
+        if idx < len(self.id2word):
+            return self.id2word[idx]
+        return self.unk_word
 
     @classmethod
     def get(cls, vocab=None, dict_binpath=None):
@@ -74,10 +80,14 @@ class Dictionary(object):
 
         return dictionary
 
+    def unk(self):
+        """Helper to get index of unk symbol"""
+        return self.unk_index
+
 
 class LabelDict(Dictionary):
     def __init__(self, name: str, word2id: Dict, id2word: Dict):
-        super().__init__(word2id, id2word)
+        super().__init__(word2id, id2word, pad=FIELD_PAD, unk=FIELD_UNK)
         self.name = name
         self.pad_index = self.word2id[FIELD_PAD]
         self.unk_index = self.word2id[FIELD_UNK]
@@ -95,10 +105,22 @@ class LabelDict(Dictionary):
 
         return LabelDict("Field", word2id, id2word)
 
+    def pad(self):
+        """Helper to get index of pad symbol"""
+        return self.pad_index
+
+    def null(self):
+        """Helper to get index of null symbol"""
+        return self.null_index
+
+    def unk(self):
+        """Helper to get index of unk symbol"""
+        return self.unk_index
+
 
 class BpeWordDict(Dictionary):
     def __init__(self, name: str, word2id: Dict, id2word: Dict):
-        super().__init__(word2id, id2word)
+        super().__init__(word2id, id2word, pad=WORD_PAD, eos=BPE_EOS, unk=BPE_UNK)
         self.name = name
         self.unk_index = self.word2id[BPE_UNK]
         self.bos_index = self.word2id[BPE_BOS]
@@ -117,6 +139,22 @@ class BpeWordDict(Dictionary):
         id2word = {v: k for k, v in word2id.items()}
 
         return BpeWordDict("Bpe words", word2id, id2word)
+
+    def pad(self):
+        """Helper to get index of pad symbol"""
+        return self.pad_index
+
+    def sos(self, src_type):
+        """Helper to get index of start-of-sentence symbol"""
+        return self.bos_index if src_type is 'text' else self.sot_index
+
+    def eos(self):
+        """Helper to get index of end-of-sentence symbol"""
+        return self.eos_index
+
+    def unk(self):
+        """Helper to get index of unk symbol"""
+        return self.unk_index
 
 
 class Article(object):
@@ -379,3 +417,247 @@ class BacktranslatorCorpusReader:
                                                               train=False)
 
         return src_word, trg_word, src_field, trg_field
+
+
+class WordNoising(object):
+    """Generate a noisy version of a sentence, without changing words themselves."""
+    def __init__(self, w_dict, f_dict, bpe_start_marker="▁"):
+        self.w_dict = w_dict
+        self.f_dict = f_dict
+        self.bpe_start = None
+        if bpe_start_marker:
+            self.bpe_start = np.array([
+                self.w_dict[i].startswith(bpe_start_marker)
+                for i in range(len(self.w_dict))
+            ])
+
+        self.get_word_idx = (
+            self._get_bpe_word_idx
+            if self.bpe_start is not None
+            else self._get_token_idx
+        )
+
+    def noising(self, sents, sents_fields, lengths, noising_prob=0.0):
+        raise NotImplementedError()
+
+    def _get_bpe_word_idx(self, sents):
+        """
+        Given a list of BPE tokens, for every index in the tokens list,
+        return the index of the word grouping that it belongs to.
+        For example, for input sents corresponding to ["▁how", "▁are", "▁y", "ou"],
+        return [[0], [1], [2], [2]].
+        """
+        # sents: (T x B)
+        bpe_start = self.bpe_start[sents]
+
+        if (sents.size(0) == 1 and sents.size(1) == 1):
+            # Special case when we only have one word in sents. If sents = [[N]],
+            # bpe_start is a scalar (bool) instead of a 2-dim array of bools,
+            # which makes the sum operation below fail.
+            return np.array([[0]])
+
+        # do a reduce front sum to generate word ids
+        word_idx = bpe_start.cumsum(0)
+
+        return word_idx
+
+    def _get_token_idx(self, x):  # fix
+        """
+        This is to extend noising functions to be able to apply to non-bpe
+        tokens, e.g. word or characters.
+        """
+        x = torch.t(x)
+        word_idx = np.array([range(len(x_i)) for x_i in x])
+        return np.transpose(word_idx)
+
+
+class WordDropout(WordNoising):
+    """Randomly drop input words. If not passing blank_idx (default is None),
+    then dropped words will be removed. Otherwise, it will be replaced by the
+    blank_idx."""
+
+    def __init__(self, w_dict, f_dict, bpe_start_marker="▁"):
+        super().__init__(w_dict, f_dict, bpe_start_marker)
+
+    def noising(self, sents, sents_fields, lengths, dropout_prob=0.1, w_blank_idx=None, f_blank_idx=None):
+        # sents: (T x B), lengths: B
+        if dropout_prob == 0:
+            return sents, sents_fields, lengths
+
+        assert 0 < dropout_prob < 1
+
+        # be sure to drop entire words
+        word_idx = self.get_word_idx(sents)
+        sentences = []
+        sentences_fields = []
+        modified_lengths = []
+        for i in range(lengths.size(0)):
+            # Since dropout probabilities need to apply over non-pad tokens,
+            # it is not trivial to generate the keep mask without consider
+            # input lengths; otherwise, this could be done outside the loop
+
+            # We want to drop whole words based on word_idx grouping
+            num_words = max(word_idx[:, i]) + 1
+
+            # ith example: [x0, x1, ..., eos, pad, ..., pad]
+            # We should only generate keep probs for non-EOS tokens. Thus if the
+            # input sentence ends in EOS, the last word idx is not included in
+            # the dropout mask generation and we append True to always keep EOS.
+            # Otherwise, just generate the dropout mask for all word idx
+            # positions.
+            has_eos = sents[lengths[i] - 1, i] == self.w_dict.eos()
+            if has_eos:  # has eos?
+                keep = np.random.rand(num_words - 1) >= dropout_prob
+                keep = np.append(keep, [True])  # keep EOS symbol
+            else:
+                keep = np.random.rand(num_words) >= dropout_prob
+
+            words = sents[:lengths[i], i].tolist()
+            fields = sents_fields[:lengths[i], i].tolist()
+
+            # TODO: speed up the following loop
+            # drop words from the input according to keep
+            new_s = [
+                w if keep[word_idx[j, i]] else w_blank_idx
+                for j, w in enumerate(words)
+            ]
+            new_f = [
+                f if keep[word_idx[j, i]] else f_blank_idx
+                for j, f in enumerate(fields)
+            ]
+            new_s = [w for w in new_s if w is not None]
+            new_f = [f for f in new_f if f is not None]
+            # we need to have at least one word in the sentence (more than the
+            # start / end sentence symbols)
+            if len(new_s) <= 1:
+                # insert at beginning in case the only token left is EOS
+                # EOS should be at end of list.
+                rand_idx = np.random.randint(0, len(words))
+                new_s.insert(0, words[rand_idx])
+                new_f.insert(0, fields[rand_idx])
+            assert len(new_s) >= 1 and (
+                not has_eos  # Either don't have EOS at end or last token is EOS
+                or (len(new_s) >= 2 and new_s[-1] == self.w_dict.eos())
+            ), "New sentence is invalid."
+            sentences.append(new_s)
+            sentences_fields.append(new_f)
+            modified_lengths.append(len(new_s))
+        # re-construct input
+        modified_lengths = torch.LongTensor(modified_lengths)
+        modified_sents = torch.LongTensor(
+            modified_lengths.max(),
+            modified_lengths.size(0)
+        ).fill_(self.w_dict.pad())
+        modified_fields = torch.LongTensor(
+            modified_lengths.max(),
+            modified_lengths.size(0)
+        ).fill_(self.f_dict.pad())
+        for i in range(modified_lengths.size(0)):
+            modified_sents[:modified_lengths[i], i].copy_(torch.LongTensor(sentences[i]))
+            modified_fields[:modified_lengths[i], i].copy_(torch.LongTensor(sentences_fields[i]))
+
+        return modified_sents, modified_fields, modified_lengths
+
+
+class WordShuffle(WordNoising):
+    """Shuffle words by no more than k positions."""
+
+    def __init__(self, w_dict, f_dict, bpe_start_marker="▁"):
+        super().__init__(w_dict, f_dict, bpe_start_marker)
+
+    def noising(self, sents, sents_fields, lengths, max_shuffle_distance=3):
+        # sents: (T x B), lengths: B
+        if max_shuffle_distance == 0:
+            return sents, sents_fields, lengths
+
+        # max_shuffle_distance < 1 will return the same sequence
+        assert max_shuffle_distance > 1
+
+        # define noise word scores
+        noise = np.random.uniform(
+            0,
+            max_shuffle_distance,
+            size=(sents.size(0), sents.size(1)),
+        )
+        noise[0] = -1  # do not move start sentence symbol
+        # be sure to shuffle entire words
+        word_idx = self.get_word_idx(sents)
+        sents2 = sents.clone()
+        sents_fields2 = sents_fields.clone()
+        for i in range(lengths.size(0)):
+            length_no_eos = lengths[i]
+            if sents[lengths[i] - 1, i] == self.w_dict.eos():
+                length_no_eos = lengths[i] - 1
+            # generate a random permutation
+            scores = word_idx[:length_no_eos, i] + noise[word_idx[:length_no_eos, i], i]
+            # ensure no reordering inside a word
+            scores += 1e-6 * np.arange(length_no_eos)
+            permutation = scores.argsort()
+            # shuffle words
+            sents2[:length_no_eos, i].copy_(
+                sents2[:length_no_eos, i][torch.from_numpy(permutation)]
+            )
+            sents_fields2[:length_no_eos, i].copy_(
+                sents_fields2[:length_no_eos, i][torch.from_numpy(permutation)]
+            )
+        return sents2, sents_fields2, lengths
+
+
+class UnsupervisedMTNoising(WordNoising):
+    """
+    Implements the default configuration for noising in UnsupervisedMT
+    (github.com/facebookresearch/UnsupervisedMT)
+    """
+    def __init__(
+        self,
+        w_dict,
+        f_dict,
+        max_word_shuffle_distance,
+        word_dropout_prob,
+        word_blanking_prob,
+        bpe_start_marker="▁"
+    ):
+        super().__init__(w_dict, f_dict)
+        self.max_word_shuffle_distance = max_word_shuffle_distance
+        self.word_dropout_prob = word_dropout_prob
+        self.word_blanking_prob = word_blanking_prob
+
+        self.word_dropout = WordDropout(
+            w_dict=w_dict,
+            f_dict=f_dict,
+            bpe_start_marker=bpe_start_marker,
+        )
+        self.word_shuffle = WordShuffle(
+            w_dict=w_dict,
+            f_dict=f_dict,
+            bpe_start_marker=bpe_start_marker,
+        )
+
+    def noising(self, sents, sents_fields, lengths):
+        # 1. Word Shuffle
+        noisy_src_tokens, noisy_src_fields, noisy_src_lengths = self.word_shuffle.noising(
+            sents=sents,
+            sents_fields=sents_fields,
+            lengths=lengths,
+            max_shuffle_distance=self.max_word_shuffle_distance,
+        )
+        # 2. Word Dropout
+        noisy_src_tokens, noisy_src_fields, noisy_src_lengths = self.word_dropout.noising(
+            sents=noisy_src_tokens,
+            sents_fields=noisy_src_fields,
+            lengths=noisy_src_lengths,
+            dropout_prob=self.word_dropout_prob,
+        )
+        # 3. Word Blanking
+        noisy_src_tokens, noisy_src_fields, noisy_src_lengths = self.word_dropout.noising(
+            sents=noisy_src_tokens,
+            sents_fields=noisy_src_fields,
+            lengths=noisy_src_lengths,
+            dropout_prob=self.word_blanking_prob,
+            w_blank_idx=self.w_dict.unk(),
+            f_blank_idx=self.f_dict.unk(),
+        )
+
+        noisy_src_lengths, sort_order = noisy_src_lengths.sort(descending=True)
+
+        return noisy_src_tokens[:, sort_order], noisy_src_fields[:, sort_order], noisy_src_lengths

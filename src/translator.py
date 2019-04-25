@@ -17,7 +17,7 @@ import random
 import torch
 import torch.nn as nn
 import logging
-from src.data import LabelDict, BpeWordDict
+from src.data import LabelDict, BpeWordDict, UnsupervisedMTNoising
 import copy
 
 from torch.nn import functional as F
@@ -29,7 +29,8 @@ class Translator:
     def __init__(self, name, encoder_word_embeddings, decoder_word_embeddings,
                  encoder_field_embeddings, decoder_field_embeddings, generator, src_word_dict,
                  trg_word_dict, src_field_dict, trg_field_dict, src_type, trg_type, w_sos_id, bpemb_en,
-                 encoder, decoder, discriminator=None, denoising=True, device='cpu'):
+                 encoder, decoder, discriminator=None, denoising=True, device='cpu',
+                 noising_class=UnsupervisedMTNoising, **kwargs):
         self.name = name
         self.encoder_word_embeddings = encoder_word_embeddings
         self.decoder_word_embeddings = decoder_word_embeddings
@@ -44,6 +45,7 @@ class Translator:
         self.decoder = decoder
         self.discriminator = discriminator
         self.bpemb_en = bpemb_en
+        self.noiser = noising_class(w_dict=src_word_dict, f_dict=src_field_dict, **kwargs)
 
         assert self.encoder.batch_first == self.decoder.batch_first
 
@@ -148,20 +150,25 @@ class Translator:
             if not self.batch_first:
                 var_wordids = torch.LongTensor(word_ids).transpose(1, 0).contiguous().to(self.device)
                 var_fieldids = torch.LongTensor(field_ids).transpose(1, 0).contiguous().to(self.device)
+                var_length = torch.LongTensor(lengths).to(self.device)
             else:
                 var_wordids = torch.LongTensor(word_ids).to(self.device)
                 var_fieldids = torch.LongTensor(field_ids).to(self.device)
+                var_length = torch.LongTensor(lengths).to(self.device)
 
-            logger.debug('enc: word_ids are on cuda: %d', var_wordids.is_cuda)
-            logger.debug('enc: field_ids are on cuda: %d', var_fieldids.is_cuda)
+        if train and self.denoising:
+            var_wordids, var_fieldids, var_length = self.noiser.noising(var_wordids, var_fieldids, var_length)
+
+        logger.debug('enc: word_ids are on cuda: %d', var_wordids.is_cuda)
+        logger.debug('enc: field_ids are on cuda: %d', var_fieldids.is_cuda)
 
         hidden = self.encoder.initial_hidden(len(sentences)).to(self.device)
         logger.debug('hidden is on cuda: %d', hidden.is_cuda)
 
-        hidden, context = self.encoder(word_ids=var_wordids, field_ids=var_fieldids, lengths=lengths,
+        hidden, context = self.encoder(word_ids=var_wordids, field_ids=var_fieldids, lengths=var_length,
                                        word_embeddings=self.encoder_word_embeddings,
                                        field_embeddings=self.encoder_field_embeddings, hidden=hidden)
-        return hidden, context, lengths
+        return hidden, context, var_length
 
     def mask(self, lengths):
         batch_size = len(lengths)

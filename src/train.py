@@ -291,7 +291,10 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=src_type, trg_type=src_type, w_sos_id=w_sos_id[src_type],
                                     bpemb_en=bpemb_en, encoder=src_enc, decoder=src_dec, discriminator=discriminator,
-                                    denoising=not args.disable_denoising, device=device)
+                                    denoising=not args.disable_denoising, device=device,
+                                    max_word_shuffle_distance=3,
+                                    word_dropout_prob=0.1,
+                                    word_blanking_prob=0.2)
     src2trg_translator = Translator("src2trg",
                                     encoder_word_embeddings=src_encoder_word_embeddings,
                                     decoder_word_embeddings=trg_decoder_word_embeddings,
@@ -302,7 +305,10 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=src_type, trg_type=trg_type, w_sos_id=w_sos_id[trg_type],
                                     bpemb_en=bpemb_en, encoder=src_enc, decoder=trg_dec, discriminator=discriminator,
-                                    denoising=False, device=device)
+                                    denoising=False, device=device,
+                                    max_word_shuffle_distance=3,
+                                    word_dropout_prob=0.1,
+                                    word_blanking_prob=0.2)
     trg2trg_translator = Translator("trg2trg",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
                                     decoder_word_embeddings=trg_decoder_word_embeddings,
@@ -313,7 +319,10 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=trg_type, trg_type=trg_type, w_sos_id=w_sos_id[trg_type],
                                     bpemb_en=bpemb_en, encoder=trg_enc, decoder=trg_dec, discriminator=discriminator,
-                                    denoising=not args.disable_denoising, device=device)
+                                    denoising=not args.disable_denoising, device=device,
+                                    max_word_shuffle_distance=3,
+                                    word_dropout_prob=0.1,
+                                    word_blanking_prob=0.2)
     trg2src_translator = Translator("trg2src",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
                                     decoder_word_embeddings=src_decoder_word_embeddings,
@@ -324,7 +333,10 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=trg_type, trg_type=src_type, w_sos_id=w_sos_id[src_type],
                                     bpemb_en=bpemb_en, encoder=trg_enc, decoder=src_dec, discriminator=discriminator,
-                                    denoising=False, device=device)
+                                    denoising=False, device=device,
+                                    max_word_shuffle_distance=3,
+                                    word_dropout_prob=0.1,
+                                    word_blanking_prob=0.2)
 
     # Build trainers
     trainers = []
@@ -621,16 +633,18 @@ class DiscTrainer:
             if not self.batch_first:
                 var_wordids = torch.LongTensor(word_ids).transpose(1, 0).to(self.device)
                 var_fieldids = torch.LongTensor(field_ids).transpose(1, 0).to(self.device)
+                var_length = torch.LongTensor(lengths).to(self.device)
             else:
                 var_wordids = torch.LongTensor(word_ids).to(self.device)
                 var_fieldids = torch.LongTensor(field_ids).to(self.device)
+                var_length = torch.LongTensor(lengths).to(self.device)
 
         hidden = encoder.initial_hidden(len(sentences)).to(self.device)
 
-        hidden, context = encoder(word_ids=var_wordids, field_ids=var_fieldids, lengths=lengths,
+        hidden, context = encoder(word_ids=var_wordids, field_ids=var_fieldids, lengths=var_length,
                                   word_embeddings=self.encoder_word_embeddings,
                                   field_embeddings=self.encoder_field_embeddings, hidden=hidden)
-        return hidden, context, lengths
+        return hidden, context, var_length
 
     def step(self, print_dbg=False, include_field_loss=False):
         self.encoder_word_embeddings.eval()
