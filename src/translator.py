@@ -148,16 +148,21 @@ class Translator:
 
         with torch.no_grad():
             if not self.batch_first:
-                var_wordids = torch.LongTensor(word_ids).transpose(1, 0).contiguous().to(self.device)
-                var_fieldids = torch.LongTensor(field_ids).transpose(1, 0).contiguous().to(self.device)
-                var_length = torch.LongTensor(lengths).to(self.device)
+                var_wordids = torch.LongTensor(word_ids).transpose(1, 0).contiguous()
+                var_fieldids = torch.LongTensor(field_ids).transpose(1, 0).contiguous()
+                var_length = torch.LongTensor(lengths)
             else:
-                var_wordids = torch.LongTensor(word_ids).to(self.device)
-                var_fieldids = torch.LongTensor(field_ids).to(self.device)
-                var_length = torch.LongTensor(lengths).to(self.device)
+                var_wordids = torch.LongTensor(word_ids)
+                var_fieldids = torch.LongTensor(field_ids)
+                var_length = torch.LongTensor(lengths)
 
         if train and self.denoising:
             var_wordids, var_fieldids, var_length = self.noiser.noising(var_wordids, var_fieldids, var_length)
+
+        with torch.no_grad():
+            var_wordids = torch.LongTensor(var_wordids).to(self.device)
+            var_fieldids = torch.LongTensor(var_fieldids).to(self.device)
+            var_length = torch.LongTensor(var_length).to(self.device)
 
         logger.debug('enc: word_ids are on cuda: %d', var_wordids.is_cuda)
         logger.debug('enc: field_ids are on cuda: %d', var_fieldids.is_cuda)
