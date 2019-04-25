@@ -21,6 +21,7 @@ import logging
 import torch
 import os
 import datetime
+import threading
 
 import src.data as data
 from src.encoder import RNNEncoder
@@ -114,6 +115,7 @@ def main_train():
     parser.add_argument('--preprocess_metadata_path', type=str, default='', help='Path of bin file containing preprocess metadata')
     parser.add_argument('--encoding', default='utf-8', help='the character encoding for input/output (defaults to utf-8)')
     parser.add_argument('--cuda', type=str, default='cuda:0')
+    parser.add_argument('--bleu_device', type=str, default='')
 
     # Parse arguments
     args = parser.parse_args()
@@ -154,8 +156,11 @@ def main_train():
     # Select device
     if torch.cuda.is_available():
         device = torch.device(args.cuda)
+        if args.bleu_device == '':
+            args.bleu_device = args.cuda
     else:
         device = torch.device('cpu')
+        args.bleu_device = 'cpu'
 
     current_time = str(datetime.datetime.now().timestamp())
     run_dir = 'run_' + current_time + '/'
@@ -573,9 +578,11 @@ def main_train():
                 if logger.validator is not None:
                     logger.validate(curr_iter)
 
-            bleu_res = calc_bleu(src2trg_translator, args.src_valid_corpus, args.trg_valid_corpus + 'str.result', ref_string_path,
-                                 bpemb_en, n_iter=curr_iter)
-            valid_writer.add_text('valid_bleu', bleu_res + ' | iter = ' + str(curr_iter), curr_iter)
+            bleu_thread = threading.Thread(target=calc_bleu,
+                                           args=('{0}.{1}.src2trg.pth'.format(args.save, 'it{0}'.format(curr_iter)),
+                                                 args.src_valid_corpus, args.trg_valid_corpus + 'str.result',
+                                                 ref_string_path, bpemb_en, curr_iter, args.bleu_device, valid_writer))
+            bleu_thread.start()
 
     save_models('final')
     train_writer.close()
@@ -850,5 +857,5 @@ class Logger:
         if self.valid_writer is not None:
             self.valid_writer.add_scalar(self.short_name + '/word_loss', avg_w_loss, step)
             self.valid_writer.add_scalar(self.short_name + '/field_loss', avg_f_loss, step)
-            self.valid_writer.add_scalar(self.short_name + '/diss_loss', avg_diss_loss, step)
+            self.valid_writer.add_scalar(self.short_name + '/disc_loss', avg_diss_loss, step)
             self.valid_writer.add_scalar(self.short_name + '/ppl', ppl, step)

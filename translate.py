@@ -81,10 +81,17 @@ def move_translator_to_device(translator, device):
     return translator
 
 
-def calc_bleu(translator, input_filepath, output_filepath, ref_filepath, bpemb_en, n_iter=0, pid=0, device='cpu',
-              que=None, batch_size=50, encoding='utf-8'):
-    if device is not 'cpu':
-        translator = move_translator_to_device(translator, device)
+def calc_bleu(model_filepath, input_filepath, output_filepath, ref_filepath, bpemb_en, n_iter=0, device='cpu',
+              writer=None, que=None, batch_size=50, encoding='utf-8'):
+
+    pid = os.getpid()
+
+    print("[DEVICE %s | PID %d | it %s] Start evaluation model %s on device %s" %
+          (device, pid, n_iter, model_filepath, device))
+
+    translator = load_model(model_filepath, device)
+
+    print("[DEVICE %s | PID %d | it %s] Verify device %s" % (device, pid, n_iter, translator.device))
 
     with ExitStack() as stack:
         fin_content = stack.enter_context(open(input_filepath + '.content',
@@ -140,6 +147,8 @@ def calc_bleu(translator, input_filepath, output_filepath, ref_filepath, bpemb_e
     print("[DEVICE %s | PID %d | it %s] Evaluating BLEU" % (device, pid, n_iter))
     result = eval_moses_bleu(ref_filepath, output_filepath + '.content')
 
+    if writer is not None:
+        writer.add_text('valid_bleu', str(result) + ' | iter = ' + str(n_iter), n_iter)
     print("[DEVICE %s | PID %d | it %s] %s" % (device, pid, n_iter, result))
     print("[DEVICE %s | PID %d | it %s] Done" % (device, pid, n_iter))
 
