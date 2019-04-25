@@ -139,15 +139,9 @@ class Translator:
         # Padding
         word_ids, field_ids = self.add_padding(word_ids, field_ids, max_length)
 
-        # if not self.batch_first:
-        #     # batch*len -> len*batch
-        #     word_ids, field_ids = self.transpose_ids(word_ids, field_ids, max_length)
-
         return word_ids, field_ids, lengths
 
     def encode(self, sentences, sentences_field, train=False):
-        self._train(train)
-
         word_ids, field_ids, lengths = self.preprocess_ids(sentences, sentences_field, train=train, eos=True)
 
         with torch.no_grad():
@@ -157,10 +151,6 @@ class Translator:
             else:
                 var_wordids = torch.LongTensor(word_ids).to(self.device)
                 var_fieldids = torch.LongTensor(field_ids).to(self.device)
-
-            # if not self.batch_first:
-            #     var_wordids = var_wordids.transpose(1, 0)
-            #     var_fieldids = var_fieldids.transpose(1, 0)
 
             logger.debug('enc: word_ids are on cuda: %d', var_wordids.is_cuda)
             logger.debug('enc: field_ids are on cuda: %d', var_fieldids.is_cuda)
@@ -198,10 +188,6 @@ class Translator:
             else:
                 in_var_word_ids = torch.LongTensor(in_word_ids).to(self.device)
                 in_var_field_ids = torch.LongTensor(in_field_ids).to(self.device)
-
-            # if not self.batch_first:
-            #     in_var_word_ids = in_var_word_ids.transpose(1, 0)
-            #     in_var_field_ids = in_var_field_ids.transpose(1, 0)
 
             logger.debug('dec: word_ids are on cuda: %d', in_var_word_ids.is_cuda)
             logger.debug('dec: field_ids are on cuda: %d', in_var_field_ids.is_cuda)

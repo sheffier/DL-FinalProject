@@ -799,6 +799,8 @@ class Validator:
 
     def score(self, src_sents, trg_in_sents, trg_out_sents, src_field, trg_in_field, trg_out_field, src_lengths,
               trg_lengths, batch_size):
+        self.translator._train(False)
+
         hidden, context, context_lengths = self.encode(src_sents, src_field, src_lengths, batch_size)
         context_mask = self.translator.mask(context_lengths)
         if context_mask is not None:
