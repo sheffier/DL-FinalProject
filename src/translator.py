@@ -131,9 +131,9 @@ class Translator:
         return word_ids, field_ids
 
     def preprocess_ids(self, sentences, sentences_field, train=False, eos=False, sos=False):
-        if train and self.denoising:
-            # Add order noise
-            sentences, sentences_field = self.add_noise(sentences, sentences_field)
+        # if train and self.denoising:
+        #     # Add order noise
+        #     sentences, sentences_field = self.add_noise(sentences, sentences_field)
 
         word_ids, field_ids, lengths = self.add_control_sym(sentences, sentences_field, eos, sos)
         max_length = max(lengths)
