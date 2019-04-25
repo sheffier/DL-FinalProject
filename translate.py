@@ -26,6 +26,7 @@ import re
 import config
 from src.utils import local_path_to, safe_mkdir
 from preprocess import PreprocessMetadata
+from tqdm import tqdm
 
 
 # BLEU_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tools')
@@ -63,6 +64,86 @@ def load_model(model, device):
     translator.field_criterion.to(device)
 
     return translator
+
+
+def move_translator_to_device(translator, device):
+    translator.device = device
+    translator.encoder_word_embeddings.to(device)
+    translator.decoder_word_embeddings.to(device)
+    translator.encoder_field_embeddings.to(device)
+    translator.decoder_field_embeddings.to(device)
+    translator.generator.to(device)
+    translator.encoder.to(device)
+    translator.decoder.to(device)
+    translator.word_criterion.to(device)
+    translator.field_criterion.to(device)
+
+    return translator
+
+
+def calc_bleu(translator, input_filepath, output_filepath, ref_filepath, bpemb_en, n_iter=0, pid=0, device='cpu',
+              que=None, batch_size=50, encoding='utf-8'):
+    if device is not 'cpu':
+        translator = move_translator_to_device(translator, device)
+
+    with ExitStack() as stack:
+        fin_content = stack.enter_context(open(input_filepath + '.content',
+                                               encoding=encoding, errors='surrogateescape'))
+        fin_labels = stack.enter_context(open(input_filepath + '.labels',
+                                              encoding=encoding, errors='surrogateescape'))
+        fout_content = stack.enter_context(open(output_filepath + '.content',
+                                                mode='w', encoding=encoding, errors='surrogateescape'))
+        fout_labels = stack.enter_context(open(output_filepath + '.labels',
+                                               mode='w', encoding=encoding, errors='surrogateescape'))
+
+        total_bytes = os.path.getsize(input_filepath + '.content')
+        end = False
+
+        with tqdm(total=total_bytes) as pbar:
+            while not end:
+                content_batch = []
+                labels_batch = []
+                bytes_read = 0
+                while len(content_batch) < batch_size and not end:
+                    content = fin_content.readline()
+                    labels = fin_labels.readline()
+                    content_ids = [int(idstr) for idstr in content.strip().split()]
+                    labels_ids = [int(idstr) for idstr in labels.strip().split()]
+
+                    if not content:
+                        end = True
+                    else:
+                        content_batch.append(content_ids)
+                        labels_batch.append(labels_ids)
+
+                    bytes_read += len(content)
+
+                if len(content_batch) > 0:
+                    for idx, (w_trans, f_trans) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
+                        w_str_trans = bpemb_en.decode_ids(w_trans)
+                        f_str_trans = " ".join([translator.trg_field_dict.id2word[field_idx] for field_idx in f_trans])
+                        try:
+                            fout_content.write(w_str_trans + '\n')
+                            fout_labels.write(f_str_trans + '\n')
+                        except:
+                            print("Error in greedy decoding")
+                            print(w_str_trans)
+                            print(f_str_trans)
+                            fout_content.write('\n')
+                            fout_labels.write('\n')
+
+                pbar.update(bytes_read)
+
+    if que is not None:
+        que.put(device)
+
+    print("[DEVICE %s | PID %d | it %s] Evaluating BLEU" % (device, pid, n_iter))
+    result = eval_moses_bleu(ref_filepath, output_filepath + '.content')
+
+    print("[DEVICE %s | PID %d | it %s] %s" % (device, pid, n_iter, result))
+    print("[DEVICE %s | PID %d | it %s] Done" % (device, pid, n_iter))
+
+    return result
 
 
 def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, que):

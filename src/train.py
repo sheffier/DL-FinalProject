@@ -36,6 +36,7 @@ from torch.nn import functional as F
 from tensorboardX import SummaryWriter
 from src.utils import plot_grad_flow
 from src.utils import get_num_lines
+from translate import calc_bleu
 
 
 def main_train():
@@ -501,6 +502,25 @@ def main_train():
         if args.corpus_mode == 'mono':
             torch.save(trg2src_translator, '{0}.{1}.trg2src.pth'.format(args.save, name))
 
+    ref_string_path = args.trg_valid_corpus + '.str.content'
+
+    if not os.path.isfile(ref_string_path):
+        print("Creating ref file... [%s]" % (ref_string_path))
+
+        with ExitStack() as stack:
+
+            fref_content = stack.enter_context(
+                open(args.trg_valid_corpus + '.content', encoding=args.encoding, errors='surrogateescape'))
+            fref_str_content = stack.enter_context(
+                open(ref_string_path, mode='w', encoding=args.encoding, errors='surrogateescape'))
+
+            for line in fref_content:
+                ref_ids = [int(idstr) for idstr in line.strip().split()]
+                ref_str = bpemb_en.decode_ids(ref_ids)
+                fref_str_content.write(ref_str + '\n')
+
+        print("Ref file created!")
+
     # Training
     if args.corpus_mode == 'semi-mono':
         for curr_iter in range(1, 12000):
@@ -540,6 +560,10 @@ def main_train():
             for logger in loggers:
                 if logger.validator is not None:
                     logger.validate(curr_iter)
+
+            bleu_res = calc_bleu(src2trg_translator, args.src_valid_corpus, args.trg_valid_corpus + 'str.result', ref_string_path,
+                                 bpemb_en, n_iter=curr_iter)
+            valid_writer.add_text('valid_bleu', bleu_res + ' | iter = ' + str(curr_iter), curr_iter)
 
     save_models('final')
     train_writer.close()
