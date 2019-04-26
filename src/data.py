@@ -343,7 +343,7 @@ class CorpusReader:
                 self.cache.append(((src_length, trg_length), src_word_ids, trg_word_ids, src_field_ids,
                                    trg_field_ids))
 
-        print("Cache filed")
+        print("Cache filled")
         for i in range(self.cache_size):
             self.pending.add(i)
             self.length2pending[self.cache[i][0]].add(i)
