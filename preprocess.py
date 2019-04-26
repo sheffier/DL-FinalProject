@@ -259,19 +259,22 @@ def create_mono_datasets(label_dict: LabelDict, bpe):
 
         box_info = info['box']
         article_info = info['article']
-        box_ds.infoboxes.extend(all_infoboxes.infoboxes[start_entry + box_info[0]: start_entry + box_info[1]])
         article_ds.articles.extend(all_articles.articles[start_entry + article_info[0]: start_entry + article_info[1]])
+
+        if os.path.isfile(box_info[2] + '.bin') is False:
+            box_ds.infoboxes.extend(all_infoboxes.infoboxes[start_entry + box_info[0]: start_entry + box_info[1]])
+            print(name + ": " + "Save mono box dataset as binary")
+            box_ds.dump(box_info[2], bpe)
+            torch.save(box_ds, box_info[2] + '.bin')
+            del box_ds
+
+        if os.path.isfile(article_info[2] + '.bin') is False:
+            print(name + ": " + "Save mono article dataset as binary")
+            article_ds.dump(article_info[2], bpe)
+            torch.save(article_ds, article_info[2] + '.bin')
+            del article_ds
+
         start_entry += article_info[1]
-
-        print(name + ": " + "Save mono box dataset as binary")
-        box_ds.dump(box_info[2], bpe)
-        torch.save(box_ds, box_info[2] + '.bin')
-        del box_ds
-
-        print(name + ": " + "Save mono article dataset as binary")
-        article_ds.dump(article_info[2], bpe)
-        torch.save(article_ds, article_info[2] + '.bin')
-        del article_ds
 
 
 def make_dirs():
