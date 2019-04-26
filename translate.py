@@ -342,7 +342,7 @@ def main():
             for pool_out in pool_outs:
                 bleu_file.write(pool_out[1])
     else:
-        q.put('cuda:0')
+        q.put(device_list[0])
         bleu_res = trans(args, input_filepath, output_dir, ref_string_path, model_files[0], bpemb_en, q)
         print(bleu_res)
 
