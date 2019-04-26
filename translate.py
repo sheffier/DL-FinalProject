@@ -66,31 +66,12 @@ def load_model(model, device):
     return translator
 
 
-def move_translator_to_device(translator, device):
-    translator.device = device
-    translator.encoder_word_embeddings.to(device)
-    translator.decoder_word_embeddings.to(device)
-    translator.encoder_field_embeddings.to(device)
-    translator.decoder_field_embeddings.to(device)
-    translator.generator.to(device)
-    translator.encoder.to(device)
-    translator.decoder.to(device)
-    translator.word_criterion.to(device)
-    translator.field_criterion.to(device)
-
-    return translator
-
-
 def calc_bleu(model, model_name, input_filepath, output_filepath, ref_filepath, bpemb_en, n_iter=0, device='cpu',
               writer=None, que=None, batch_size=50, encoding='utf-8'):
 
     pid = os.getpid()
 
-    if isinstance(model, str):
-        translator = load_model(model, device)
-    else:
-        translator = model
-        model = '{0}.{1}.src2trg.pth'.format(model_name, 'it{0}'.format(n_iter))
+    translator = load_model(model, device)
 
     print("[DEVICE %s | PID %d | it %s] Start evaluation model %s on device %s" %
           (device, pid, n_iter, model, device))
