@@ -207,24 +207,10 @@ def create_field_label_vocab(in_path, out_path):
 
 
 def create_mono_datasets(label_dict: LabelDict, bpe):
-    ib_para_ds = {'train': config.PRC_TRAIN_DATA_PATH + "/train.box.bin",
-                   'valid': config.PRC_VALID_DATA_PATH + "/valid.box.bin",
-                   'test': config.PRC_TEST_DATA_PATH + "/test.box.bin"}
-
+    print("Creating Articles mono datasets")
     article_para_ds = {'train': config.PRC_TRAIN_DATA_PATH + "/train.article.bin",
-                        'valid': config.PRC_VALID_DATA_PATH + "/valid.article.bin",
-                        'test': config.PRC_TEST_DATA_PATH + "/test.article.bin"}
-
-    print("Creating mono datasets")
-
-    all_infoboxes = InfoboxRawDataset(label_dict)
-
-    for name, dataset_path in ib_para_ds.items():
-        assert os.path.isfile(dataset_path)
-
-        boxes_dataset: InfoboxRawDataset = torch.load(dataset_path)
-        all_infoboxes.infoboxes.extend(boxes_dataset.infoboxes)
-        del boxes_dataset
+                       'valid': config.PRC_VALID_DATA_PATH + "/valid.article.bin",
+                       'test': config.PRC_TEST_DATA_PATH + "/test.article.bin"}
 
     all_articles = ArticleRawDataset(label_dict)
 
@@ -236,45 +222,62 @@ def create_mono_datasets(label_dict: LabelDict, bpe):
         del articles_dataset
 
     num_entries = len(all_articles.articles)
-    assert num_entries == len(all_infoboxes.infoboxes)
 
     train_entries = 2 * ((int(num_entries * 0.8) + 1) // 2)
     valid_entries = (num_entries - train_entries) // 2
     test_entries = num_entries - valid_entries
 
-    mono_datasets = {'train': {'box': [0, train_entries // 2, config.PRC_TRAIN_DATA_PATH + "/train.box.mono"],
-                               'article': [train_entries // 2, train_entries,
-                                           config.PRC_TRAIN_DATA_PATH + "/train.article.mono"]},
-                     'valid': {'box': [0, valid_entries, config.PRC_VALID_DATA_PATH + "/valid.box.mono"],
-                               'article': [0, valid_entries,
-                                           config.PRC_VALID_DATA_PATH + "/valid.article.mono"]},
-                     'test': {'box': [0, test_entries, config.PRC_TEST_DATA_PATH + "/test.box.mono"],
-                              'article': [0, test_entries,
-                                          config.PRC_TEST_DATA_PATH + "/test.article.mono"]}}
     start_entry = 0
 
-    for name, info in mono_datasets.items():
-        box_ds = InfoboxRawDataset(label_dict)
-        article_ds = ArticleRawDataset(label_dict)
+    mono_art_ds = {'train': [train_entries // 2, train_entries, config.PRC_TRAIN_DATA_PATH + "/train.article.mono"],
+                   'valid': [0, valid_entries, config.PRC_VALID_DATA_PATH + "/valid.article.mono"],
+                   'test':  [0, test_entries, config.PRC_TEST_DATA_PATH + "/test.article.mono"]}
 
-        box_info = info['box']
-        article_info = info['article']
-        article_ds.articles.extend(all_articles.articles[start_entry + article_info[0]: start_entry + article_info[1]])
-
-        if os.path.isfile(box_info[2] + '.bin') is False:
-            box_ds.infoboxes.extend(all_infoboxes.infoboxes[start_entry + box_info[0]: start_entry + box_info[1]])
-            print(name + ": " + "Save mono box dataset as binary")
-            box_ds.dump(box_info[2], bpe)
-            torch.save(box_ds, box_info[2] + '.bin')
-            del box_ds
-
+    for name, article_info in mono_art_ds.items():
         if os.path.isfile(article_info[2] + '.bin') is False:
+            article_ds = ArticleRawDataset(label_dict)
+            article_ds.articles.extend(all_articles.articles[start_entry + article_info[0]: start_entry + article_info[1]])
+
             print(name + ": " + "Save mono article dataset as binary")
             article_ds.dump(article_info[2], bpe)
             torch.save(article_ds, article_info[2] + '.bin')
             del article_ds
 
         start_entry += article_info[1]
+
+    print("Creating Infobox mono datasets")
+    ib_para_ds = {'train': config.PRC_TRAIN_DATA_PATH + "/train.box.bin",
+                  'valid': config.PRC_VALID_DATA_PATH + "/valid.box.bin",
+                  'test': config.PRC_TEST_DATA_PATH + "/test.box.bin"}
+
+    all_infoboxes = InfoboxRawDataset(label_dict)
+
+    for name, dataset_path in ib_para_ds.items():
+        assert os.path.isfile(dataset_path)
+
+        boxes_dataset: InfoboxRawDataset = torch.load(dataset_path)
+        all_infoboxes.infoboxes.extend(boxes_dataset.infoboxes)
+        del boxes_dataset
+
+    assert num_entries == len(all_infoboxes.infoboxes)
+
+    start_entry = 0
+
+    mono_box_ds = {'train': [0, train_entries // 2, config.PRC_TRAIN_DATA_PATH + "/train.box.mono"],
+                   'valid': [0, valid_entries, config.PRC_VALID_DATA_PATH + "/valid.box.mono"],
+                   'test':  [0, test_entries, config.PRC_TEST_DATA_PATH + "/test.box.mono"]}
+
+    for name, box_info in mono_box_ds.items():
+        if os.path.isfile(box_info[2] + '.bin') is False:
+            box_ds = InfoboxRawDataset(label_dict)
+            box_ds.infoboxes.extend(all_infoboxes.infoboxes[start_entry + box_info[0]: start_entry + box_info[1]])
+
+            print(name + ": " + "Save mono box dataset as binary")
+            box_ds.dump(box_info[2], bpe)
+            torch.save(box_ds, box_info[2] + '.bin')
+            del box_ds
+
+        start_entry += box_info[1]
 
 
 def make_dirs():
