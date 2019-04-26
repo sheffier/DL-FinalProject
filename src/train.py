@@ -81,13 +81,21 @@ def main_train():
     architecture_group.add_argument('--dis_hidden', type=int, default=150, help='Number of dimensions for the discriminator hidden layers')
     architecture_group.add_argument('--n_dis_layers', type=int, default=2, help='Number of discriminator layers')
     architecture_group.add_argument('--disable_bidirectional', action='store_true', help='use a single direction encoder')
-    architecture_group.add_argument('--disable_denoising', action='store_true', help='disable random swaps')
     architecture_group.add_argument('--disable_backtranslation', action='store_true', help='disable backtranslation')
     architecture_group.add_argument('--disable_field_loss', action='store_true', help='disable backtranslation')
     architecture_group.add_argument('--disable_discriminator', action='store_true', help='disable discriminator')
     architecture_group.add_argument('--shared_enc', action='store_true', help='share enc for both directions')
     architecture_group.add_argument('--shared_dec', action='store_true', help='share dec for both directions')
 
+    # Denoising
+    denoising_group = parser.add_argument_group('denoising', 'Denoising related arguments')
+    denoising_group.add_argument('--denoising_mode', type=int, default=1, help='0/1/2 = disabled/old/new')
+    denoising_group.add_argument('--word_shuffle', type=int, default=3,
+                                 help='shuffle words (only relevant in new mode)')
+    denoising_group.add_argument('--word_dropout', type=float, default=0.1,
+                                 help='randomly remove words (only relevant in new mode)')
+    denoising_group.add_argument('--word_blank', type=float, default=0.2,
+                                 help='randomly blank out words (only relevant in new mode)')
 
     # Optimization
     optimization_group = parser.add_argument_group('optimization', 'Optimization related arguments')
@@ -296,7 +304,7 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=src_type, trg_type=src_type, w_sos_id=w_sos_id[src_type],
                                     bpemb_en=bpemb_en, encoder=src_enc, decoder=src_dec, discriminator=discriminator,
-                                    denoising=not args.disable_denoising, device=device,
+                                    denoising=args.denoising_mode, device=device,
                                     max_word_shuffle_distance=3,
                                     word_dropout_prob=0.1,
                                     word_blanking_prob=0.2)
@@ -310,7 +318,7 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=src_type, trg_type=trg_type, w_sos_id=w_sos_id[trg_type],
                                     bpemb_en=bpemb_en, encoder=src_enc, decoder=trg_dec, discriminator=discriminator,
-                                    denoising=False, device=device,
+                                    denoising=0, device=device,
                                     max_word_shuffle_distance=3,
                                     word_dropout_prob=0.1,
                                     word_blanking_prob=0.2)
@@ -324,7 +332,7 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=trg_type, trg_type=trg_type, w_sos_id=w_sos_id[trg_type],
                                     bpemb_en=bpemb_en, encoder=trg_enc, decoder=trg_dec, discriminator=discriminator,
-                                    denoising=not args.disable_denoising, device=device,
+                                    denoising=args.denoising_mode, device=device,
                                     max_word_shuffle_distance=3,
                                     word_dropout_prob=0.1,
                                     word_blanking_prob=0.2)
@@ -338,7 +346,7 @@ def main_train():
                                     src_field_dict=field_dict, trg_field_dict=field_dict,
                                     src_type=trg_type, trg_type=src_type, w_sos_id=w_sos_id[src_type],
                                     bpemb_en=bpemb_en, encoder=trg_enc, decoder=src_dec, discriminator=discriminator,
-                                    denoising=False, device=device,
+                                    denoising=0, device=device,
                                     max_word_shuffle_distance=3,
                                     word_dropout_prob=0.1,
                                     word_blanking_prob=0.2)

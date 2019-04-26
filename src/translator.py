@@ -29,7 +29,7 @@ class Translator:
     def __init__(self, name, encoder_word_embeddings, decoder_word_embeddings,
                  encoder_field_embeddings, decoder_field_embeddings, generator, src_word_dict,
                  trg_word_dict, src_field_dict, trg_field_dict, src_type, trg_type, w_sos_id, bpemb_en,
-                 encoder, decoder, discriminator=None, denoising=True, device='cpu',
+                 encoder, decoder, discriminator=None, denoising=1, device='cpu',
                  noising_class=UnsupervisedMTNoising, **kwargs):
         self.name = name
         self.encoder_word_embeddings = encoder_word_embeddings
@@ -131,9 +131,9 @@ class Translator:
         return word_ids, field_ids
 
     def preprocess_ids(self, sentences, sentences_field, train=False, eos=False, sos=False):
-        # if train and self.denoising:
-        #     # Add order noise
-        #     sentences, sentences_field = self.add_noise(sentences, sentences_field)
+        if train and self.denoising == 1:
+            # Add order noise
+            sentences, sentences_field = self.add_noise(sentences, sentences_field)
 
         word_ids, field_ids, lengths = self.add_control_sym(sentences, sentences_field, eos, sos)
         max_length = max(lengths)
@@ -156,7 +156,7 @@ class Translator:
                 var_fieldids = torch.LongTensor(field_ids)
                 var_length = torch.LongTensor(lengths)
 
-        if train and self.denoising:
+        if train and self.denoising == 2:
             var_wordids, var_fieldids, var_length = self.noiser.noising(var_wordids, var_fieldids, var_length)
 
         with torch.no_grad():
