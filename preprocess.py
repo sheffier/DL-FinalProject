@@ -245,6 +245,8 @@ def create_mono_datasets(label_dict: LabelDict, bpe):
 
         start_entry += article_info[1]
 
+    del all_articles
+
     print("Creating Infobox mono datasets")
     ib_para_ds = {'train': config.PRC_TRAIN_DATA_PATH + "/train.box.bin",
                   'valid': config.PRC_VALID_DATA_PATH + "/valid.box.bin",
@@ -278,6 +280,8 @@ def create_mono_datasets(label_dict: LabelDict, bpe):
             del box_ds
 
         start_entry += box_info[1]
+
+    del all_infoboxes
 
 
 def make_dirs():
