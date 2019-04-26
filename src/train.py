@@ -578,11 +578,17 @@ def main_train():
                 if logger.validator is not None:
                     logger.validate(curr_iter)
 
+            if args.cuda == args.bleu_device:
+                model = src2trg_translator
+            else:
+                model = '{0}.{1}.src2trg.pth'.format(args.save, 'it{0}'.format(curr_iter))
+
             bleu_thread = threading.Thread(target=calc_bleu,
-                                           args=('{0}.{1}.src2trg.pth'.format(args.save, 'it{0}'.format(curr_iter)),
-                                                 args.src_valid_corpus, args.trg_valid_corpus + 'str.result',
+                                           args=(model, args.save, args.src_valid_corpus, args.trg_valid_corpus + 'str.result',
                                                  ref_string_path, bpemb_en, curr_iter, args.bleu_device, valid_writer))
             bleu_thread.start()
+            if args.cuda == args.bleu_device:
+                bleu_thread.join()
 
     save_models('final')
     train_writer.close()

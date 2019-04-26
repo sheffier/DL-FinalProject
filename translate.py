@@ -81,16 +81,19 @@ def move_translator_to_device(translator, device):
     return translator
 
 
-def calc_bleu(model_filepath, input_filepath, output_filepath, ref_filepath, bpemb_en, n_iter=0, device='cpu',
+def calc_bleu(model, model_name, input_filepath, output_filepath, ref_filepath, bpemb_en, n_iter=0, device='cpu',
               writer=None, que=None, batch_size=50, encoding='utf-8'):
 
     pid = os.getpid()
 
+    if isinstance(model, str):
+        translator = load_model(model, device)
+    else:
+        translator = model
+        model = '{0}.{1}.src2trg.pth'.format(model_name, 'it{0}'.format(n_iter))
+
     print("[DEVICE %s | PID %d | it %s] Start evaluation model %s on device %s" %
-          (device, pid, n_iter, model_filepath, device))
-
-    translator = load_model(model_filepath, device)
-
+          (device, pid, n_iter, model, device))
     print("[DEVICE %s | PID %d | it %s] Verify device %s" % (device, pid, n_iter, translator.device))
 
     with ExitStack() as stack:
