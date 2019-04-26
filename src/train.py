@@ -138,6 +138,9 @@ def main_train():
     else:
         logging.basicConfig(stream=sys.stderr, level=logging.CRITICAL)
 
+    print("Denoising mode is %s with %d %.2f %.2f" %
+          (args.denoising_mode, args.word_shuffle, args.word_dropout, args.word_blank))
+
     # Validate arguments
     if args.src_corpus_params is None or args.trg_corpus_params is None:
         print("Must supply corpus")
@@ -305,9 +308,9 @@ def main_train():
                                     src_type=src_type, trg_type=src_type, w_sos_id=w_sos_id[src_type],
                                     bpemb_en=bpemb_en, encoder=src_enc, decoder=src_dec, discriminator=discriminator,
                                     denoising=args.denoising_mode, device=device,
-                                    max_word_shuffle_distance=3,
-                                    word_dropout_prob=0.1,
-                                    word_blanking_prob=0.2)
+                                    max_word_shuffle_distance=args.word_shuffle,
+                                    word_dropout_prob=args.word_dropout,
+                                    word_blanking_prob=args.word_blank)
     src2trg_translator = Translator("src2trg",
                                     encoder_word_embeddings=src_encoder_word_embeddings,
                                     decoder_word_embeddings=trg_decoder_word_embeddings,
@@ -319,9 +322,9 @@ def main_train():
                                     src_type=src_type, trg_type=trg_type, w_sos_id=w_sos_id[trg_type],
                                     bpemb_en=bpemb_en, encoder=src_enc, decoder=trg_dec, discriminator=discriminator,
                                     denoising=0, device=device,
-                                    max_word_shuffle_distance=3,
-                                    word_dropout_prob=0.1,
-                                    word_blanking_prob=0.2)
+                                    max_word_shuffle_distance=args.word_shuffle,
+                                    word_dropout_prob=args.word_dropout,
+                                    word_blanking_prob=args.word_blank)
     trg2trg_translator = Translator("trg2trg",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
                                     decoder_word_embeddings=trg_decoder_word_embeddings,
@@ -333,9 +336,9 @@ def main_train():
                                     src_type=trg_type, trg_type=trg_type, w_sos_id=w_sos_id[trg_type],
                                     bpemb_en=bpemb_en, encoder=trg_enc, decoder=trg_dec, discriminator=discriminator,
                                     denoising=args.denoising_mode, device=device,
-                                    max_word_shuffle_distance=3,
-                                    word_dropout_prob=0.1,
-                                    word_blanking_prob=0.2)
+                                    max_word_shuffle_distance=args.word_shuffle,
+                                    word_dropout_prob=args.word_dropout,
+                                    word_blanking_prob=args.word_blank)
     trg2src_translator = Translator("trg2src",
                                     encoder_word_embeddings=trg_encoder_word_embeddings,
                                     decoder_word_embeddings=src_decoder_word_embeddings,
@@ -347,9 +350,9 @@ def main_train():
                                     src_type=trg_type, trg_type=src_type, w_sos_id=w_sos_id[src_type],
                                     bpemb_en=bpemb_en, encoder=trg_enc, decoder=src_dec, discriminator=discriminator,
                                     denoising=0, device=device,
-                                    max_word_shuffle_distance=3,
-                                    word_dropout_prob=0.1,
-                                    word_blanking_prob=0.2)
+                                    max_word_shuffle_distance=args.word_shuffle,
+                                    word_dropout_prob=args.word_dropout,
+                                    word_blanking_prob=args.word_blank)
 
     # Build trainers
     trainers = []
@@ -586,7 +589,7 @@ def main_train():
                 if logger.validator is not None:
                     logger.validate(curr_iter)
 
-            if args.cuda == args.bleu_device:
+            if args.cuda == args.bleu_device or args.bleu_device == 'cpu':
                 model = src2trg_translator
             else:
                 model = '{0}.{1}.src2trg.pth'.format(args.save, 'it{0}'.format(curr_iter))
@@ -595,7 +598,7 @@ def main_train():
                                            args=(model, args.save, args.src_valid_corpus, args.trg_valid_corpus + 'str.result',
                                                  ref_string_path, bpemb_en, curr_iter, args.bleu_device, valid_writer))
             bleu_thread.start()
-            if args.cuda == args.bleu_device:
+            if args.cuda == args.bleu_device or args.bleu_device == 'cpu':
                 bleu_thread.join()
 
     save_models('final')
