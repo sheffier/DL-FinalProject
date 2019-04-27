@@ -27,6 +27,9 @@ import config
 from src.utils import local_path_to, safe_mkdir
 from preprocess import PreprocessMetadata
 from tqdm import tqdm
+from tensorboardX import SummaryWriter
+import datetime
+
 
 
 # BLEU_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tools')
@@ -152,9 +155,15 @@ def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, que):
 
     translator = load_model(model, device)
 
-    print("[DEVICE %s | PID %d | it %s] Verify device %s" % (device, pid, model_it, translator.device))
-
     output_filepath = output_filepath + ''
+
+    current_time = str(datetime.datetime.now().timestamp())
+    run_dir = 'run_' + current_time + '/'
+    model_name = re.search(r"(?P<name>[^.]*).it*", str(model)).group('name')
+    valid_log_dir = args.log_dir + '/valid/' + run_dir + model_name
+    writer = SummaryWriter(valid_log_dir)
+
+    print("[DEVICE %s | NAME %s |PID %d | it %s] Verify device %s" % (device, model_name, pid, model_it, translator.device))
 
     with ExitStack() as stack:
         fin_content = stack.enter_context(open(input_filepath + '.content',
@@ -181,8 +190,8 @@ def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, que):
                 labels_ids = [int(idstr) for idstr in labels.strip().split()]
 
                 if bytes_read >= target_bytes:
-                    print("[DEVICE %s | PID %d | it %s] progress %.3f" %
-                          (device, pid, model_it, 100.0 * (bytes_read / total_bytes)))
+                    print("[DEVICE %s | NAME %s | PID %d | it %s] progress %.3f" %
+                          (device, model_name, pid, model_it, 100.0 * (bytes_read / total_bytes)))
                     target_bytes += total_bytes // 20
 
                 bytes_read += len(content)
@@ -211,10 +220,11 @@ def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, que):
 
     que.put(device)
 
-    print("[DEVICE %s | PID %d | it %s] Evaluating BLEU" % (device, pid, model_it))
+    print("[DEVICE %s | NAME %s | PID %d | it %s] Evaluating BLEU" % (device, model_name, pid, model_it))
     result = eval_moses_bleu(ref_filepath, output_filepath + '.content')
-    print("[DEVICE %s | PID %d | it %s] %s" % (device, pid, model_it, result))
-    print("[DEVICE %s | PID %d | it %s] Done" % (device, pid, model_it))
+    writer.add_text('valid_bleu', str(result) + ' | iter = ' + model_it, int(model_it))
+    print("[DEVICE %s | NAME %s | PID %d | it %s] %s" % (device, model_name, pid, model_it, result))
+    print("[DEVICE %s | NAME %s | PID %d | it %s] Done" % (device, model_name, pid, model_it))
 
     return int(model_it), str(model) + ': ' + result + '\n'
 
@@ -234,6 +244,8 @@ def main():
     parser.add_argument('--prefix', type=str, default='MONO')
     parser.add_argument('--train_corpus_mode', type=str, default='MONO', help='MONO/PARA')
     parser.add_argument('--direction', type=str, default='table2text', help='table2text/text2table')
+    parser.add_argument('--log_dir', type=str, default='logs')
+    parser.add_argument('--translation_dir', type=str, default='translations')
 
     args = parser.parse_args()
 
@@ -244,7 +256,6 @@ def main():
     bpemb_en = metadata.init_bpe_module()
 
     currDir = pathlib.Path('.')
-    currPatt = args.prefix + ".it*.src2trg*"
 
     assert os.path.isdir(args.testset_path), "{} is not a directory".format(args.testset_path)
     test_basename = os.path.basename(args.testset_path)
@@ -253,10 +264,12 @@ def main():
     if args.direction == 'table2text':
         in_suffix = '.box'
         out_suffix = '.article'
+        currPatt = args.prefix + ".it*.src2trg*"
     else:
         assert args.direction == 'text2table'
         in_suffix = '.article'
         out_suffix = '.box'
+        currPatt = args.prefix + ".it*.trg2src*"
 
     input_filepath = os.path.join(test_basedir, test_basename + in_suffix)
     ref_path = os.path.join(test_basedir,  test_basename + out_suffix)
@@ -267,7 +280,7 @@ def main():
 
     ref_string_path = ref_path + '.str.content'
 
-    output_dir = os.path.join(test_basedir, os.path.join('translations', args.prefix))
+    output_dir = os.path.join(test_basedir, os.path.join(args.translation_dir, args.prefix))
     safe_mkdir(local_path_to(output_dir))
 
     if not os.path.isfile(ref_string_path):
