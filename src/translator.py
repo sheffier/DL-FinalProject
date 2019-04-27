@@ -231,6 +231,9 @@ class Translator:
         prev_fields = len(sentences) * [self.f_null_id]
         pending = set(range(len(sentences)))
         output = self.decoder.initial_output(len(sentences)).to(self.device)
+
+        attentions = [torch.empty_like(output) for _ in sentences]
+
         while len(pending) > 0:
             # Maybe add teacher forcing?
             with torch.no_grad():
@@ -258,9 +261,10 @@ class Translator:
                 else:
                     word_translations[i].append(prev_words[i])
                     field_translations[i].append(prev_fields[i])
+                    attentions[i] = output
                     if len(word_translations[i]) >= max_ratio*len(sentences[i]):
                         pending.discard(i)
-        return word_translations, field_translations
+        return word_translations, field_translations, attentions
 
     def beam_search(self, sentences, field_sentences, beam_size=12, max_ratio=2, train=False):
         self._train(train)

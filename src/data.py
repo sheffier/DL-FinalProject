@@ -411,7 +411,7 @@ class BacktranslatorCorpusReader:
     def next_batch(self, size):
         src_word, trg_word, src_field, trg_field = self.corpus.next_batch(size)
         if self.beam_size == 0:
-            src_word, src_field = self.translator.greedy(trg_word, trg_field, train=False)
+            src_word, src_field, _ = self.translator.greedy(trg_word, trg_field, train=False)
         else:
             src_word, src_field = self.translator.beam_search(trg_word, trg_field, beam_size=self.beam_size,
                                                               train=False)

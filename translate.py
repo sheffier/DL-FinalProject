@@ -113,7 +113,7 @@ def calc_bleu(model, model_name, input_filepath, output_filepath, ref_filepath, 
                     bytes_read += len(content)
 
                 if len(content_batch) > 0:
-                    for idx, (w_trans, f_trans) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
+                    for idx, (w_trans, f_trans, _) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
                         w_str_trans = bpemb_en.decode_ids(w_trans)
                         f_str_trans = " ".join([translator.trg_field_dict.id2word[field_idx] for field_idx in f_trans])
                         try:
@@ -203,7 +203,7 @@ def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, que):
                     labels_batch.append(labels_ids)
 
             if args.beam_size <= 0 and len(content_batch) > 0:
-                for idx, (w_trans, f_trans) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
+                for idx, (w_trans, f_trans, _) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
                     w_str_trans = bpemb_en.decode_ids(w_trans)
                     f_str_trans = " ".join([translator.trg_field_dict.id2word[field_idx] for field_idx in f_trans])
                     try:
