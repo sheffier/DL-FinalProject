@@ -314,7 +314,7 @@ def main():
     m = mp.Manager()
     q = m.Queue()
 
-    if args.model == '':
+    if len(model_files) > 1:
         for dev in device_list:
             q.put(dev)
 
@@ -327,7 +327,7 @@ def main():
         with open(bleu_res_path, mode='w', encoding=args.encoding) as bleu_file:
             for pool_out in pool_outs:
                 bleu_file.write(pool_out[1])
-    else:
+    elif len(model_files) == 1:
         q.put(device_list[0])
         bleu_res = trans(args, input_filepath, output_dir, ref_string_path, model_files[0], bpemb_en, q)
         print(bleu_res)
