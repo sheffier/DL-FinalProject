@@ -403,18 +403,13 @@ class CorpusReader:
 
 
 class BacktranslatorCorpusReader:
-    def __init__(self, corpus, translator, beam_size=0):
+    def __init__(self, corpus, translator):
         self.corpus = corpus
         self.translator = translator
-        self.beam_size = beam_size
 
     def next_batch(self, size):
         src_word, trg_word, src_field, trg_field = self.corpus.next_batch(size)
-        if self.beam_size == 0:
-            src_word, src_field, _ = self.translator.greedy(trg_word, trg_field, train=False)
-        else:
-            src_word, src_field = self.translator.beam_search(trg_word, trg_field, beam_size=self.beam_size,
-                                                              train=False)
+        src_word, src_field, _ = self.translator.greedy(trg_word, trg_field, train=False)
 
         return src_word, trg_word, src_field, trg_field
 

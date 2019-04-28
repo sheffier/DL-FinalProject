@@ -44,11 +44,15 @@ def main_train():
     parser = argparse.ArgumentParser(description='Train a table to text model')
 
     # Training corpus
-    corpora_group = parser.add_argument_group('training corpora', 'Corpora related arguments; specify either unaligned or aligned training corpora (or both)')
+    corpora_group = parser.add_argument_group('training corpora',
+                                              'Corpora related arguments; specify either unaligned or'
+                                              ' aligned training corpora')
     # "Languages (type,path)"
-    corpora_group.add_argument('--src_corpus_params', type=str, default='table, ./data/processed_data/train/train.box',
+    corpora_group.add_argument('--src_corpus_params', type=str,
+                               default='table, ./data/processed_data/train/train.box',
                                help='the source unaligned corpus (type,path). Type = text/table')
-    corpora_group.add_argument('--trg_corpus_params', type=str, default='text, ./data/processed_data/train/train.article',
+    corpora_group.add_argument('--trg_corpus_params', type=str,
+                               default='text, ./data/processed_data/train/train.article',
                                help='the target unaligned corpus (type,path). Type = text/table')
     corpora_group.add_argument('--src_para_corpus_params', type=str, default='',
                                help='the source corpus of parallel data(type,path). Type = text/table')
@@ -58,21 +62,32 @@ def main_train():
     corpora_group.add_argument('--corpus_mode', type=str, default='mono',
                                help='training mode: "mono" (unsupervised) / "para" (supervised)')
 
-    corpora_group.add_argument('--max_sentence_length', type=int, default=50, help='the maximum sentence length for training (defaults to 50)')
-    corpora_group.add_argument('--cache', type=int, default=100000, help='the cache size (in sentences) for corpus reading (defaults to 1000000)')
+    corpora_group.add_argument('--max_sentence_length', type=int, default=50,
+                               help='the maximum sentence length for training (defaults to 50)')
+    corpora_group.add_argument('--cache', type=int, default=100000,
+                               help='the cache size (in sentences) for corpus reading (defaults to 1000000)')
 
     # Embeddings/vocabulary
-    embedding_group = parser.add_argument_group('embeddings', 'Embedding related arguments; either give pre-trained embeddings, or a vocabulary and embedding dimensionality to randomly initialize them')
-    embedding_group.add_argument('--emb_dim', type=int, default=100, help='the number of dimensions for the embedding layer')
-    embedding_group.add_argument('--word_vocab_size', type=int, default=100, help='word vocabulary size')
+    embedding_group = parser.add_argument_group('embeddings',
+                                                'Embedding related arguments; either give pre-trained embeddings,'
+                                                ' or a vocabulary and embedding dimensionality to'
+                                                ' randomly initialize them')
+    embedding_group.add_argument('--metadata_path', type=str, default='', required=True,
+                                 help='Path for bin file created in pre-processing phase, '
+                                      'containing BPEmb related metadata.')
 
     # Architecture
     architecture_group = parser.add_argument_group('architecture', 'Architecture related arguments')
-    architecture_group.add_argument('--layers', type=int, default=2, help='the number of encoder/decoder layers (defaults to 2)')
-    architecture_group.add_argument('--hidden', type=int, default=600, help='the number of dimensions for the hidden layer (defaults to 600)')
-    architecture_group.add_argument('--dis_hidden', type=int, default=150, help='Number of dimensions for the discriminator hidden layers')
-    architecture_group.add_argument('--n_dis_layers', type=int, default=2, help='Number of discriminator layers')
-    architecture_group.add_argument('--disable_bidirectional', action='store_true', help='use a single direction encoder')
+    architecture_group.add_argument('--layers', type=int, default=2,
+                                    help='the number of encoder/decoder layers (defaults to 2)')
+    architecture_group.add_argument('--hidden', type=int, default=600,
+                                    help='the number of dimensions for the hidden layer (defaults to 600)')
+    architecture_group.add_argument('--dis_hidden', type=int, default=150,
+                                    help='Number of dimensions for the discriminator hidden layers')
+    architecture_group.add_argument('--n_dis_layers', type=int, default=2,
+                                    help='Number of discriminator layers')
+    architecture_group.add_argument('--disable_bidirectional', action='store_true',
+                                    help='use a single direction encoder')
     architecture_group.add_argument('--disable_backtranslation', action='store_true', help='disable backtranslation')
     architecture_group.add_argument('--disable_field_loss', action='store_true', help='disable backtranslation')
     architecture_group.add_argument('--disable_discriminator', action='store_true', help='disable discriminator')
@@ -92,11 +107,14 @@ def main_train():
     # Optimization
     optimization_group = parser.add_argument_group('optimization', 'Optimization related arguments')
     optimization_group.add_argument('--batch', type=int, default=50, help='the batch size (defaults to 50)')
-    optimization_group.add_argument('--learning_rate', type=float, default=0.0002, help='the global learning rate (defaults to 0.0002)')
-    optimization_group.add_argument('--dropout', metavar='PROB', type=float, default=0.3, help='dropout probability for the encoder/decoder (defaults to 0.3)')
-    optimization_group.add_argument('--param_init', metavar='RANGE', type=float, default=0.1, help='uniform initialization in the specified range (defaults to 0.1,  0 for module specific default initialization)')
-    optimization_group.add_argument('--iterations', type=int, default=300000, help='the number of training iterations (defaults to 300000)')
-    optimization_group.add_argument('--beam_size', type=int, default=0, help='use beam search')
+    optimization_group.add_argument('--learning_rate', type=float, default=0.0002,
+                                    help='the global learning rate (defaults to 0.0002)')
+    optimization_group.add_argument('--dropout', metavar='PROB', type=float, default=0.3,
+                                    help='dropout probability for the encoder/decoder (defaults to 0.3)')
+    optimization_group.add_argument('--param_init', metavar='RANGE', type=float, default=0.1,
+                                    help='uniform initialization in the specified range (defaults to 0.1,  0 for module specific default initialization)')
+    optimization_group.add_argument('--iterations', type=int, default=300000,
+                                    help='the number of training iterations (defaults to 300000)')
 
     # Model saving
     saving_group = parser.add_argument_group('model saving', 'Arguments for saving the trained model')
@@ -106,16 +124,19 @@ def main_train():
     # Logging/validation
     logging_group = parser.add_argument_group('logging', 'Logging and validation arguments')
     logging_group.add_argument('--log_interval', type=int, default=100, help='log at this interval (defaults to 1000)')
-    logging_group.add_argument('--dbg_print_interval', type=int, default=1000, help='log at this interval (defaults to 1000)')
+    logging_group.add_argument('--dbg_print_interval', type=int, default=1000,
+                               help='log at this interval (defaults to 1000)')
     logging_group.add_argument('--src_valid_corpus', type=str, default='')
     logging_group.add_argument('--trg_valid_corpus', type=str, default='')
     logging_group.add_argument('--print_level', type=str, default='info', help='logging level [debug | info]')
 
     # Other
-    parser.add_argument('--metadata_path', type=str, default='', help='Path of bin file containing preprocess metadata')
-    parser.add_argument('--encoding', default='utf-8', help='the character encoding for input/output (defaults to utf-8)')
-    parser.add_argument('--cuda', type=str, default='cuda:0')
-    parser.add_argument('--bleu_device', type=str, default='')
+    misc_group = parser.add_argument_group('misc', 'Misc. arguments')
+    misc_group.add_argument('--encoding', default='utf-8',
+                            help='the character encoding for input/output (defaults to utf-8)')
+    misc_group.add_argument('--cuda', type=str, default='cpu', help='device for training. default value: "cpu"')
+    misc_group.add_argument('--bleu_device', type=str, default='',
+                            help='device for calculating BLEU scores in case a validation dataset is given')
 
     # Parse arguments
     args = parser.parse_args()
@@ -129,9 +150,6 @@ def main_train():
         logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
     else:
         logging.basicConfig(stream=sys.stderr, level=logging.CRITICAL)
-
-    print("Denoising mode is %s with %d %.2f %.2f" %
-          (args.denoising_mode, args.word_shuffle, args.word_dropout, args.word_blank))
 
     # Validate arguments
     if args.src_corpus_params is None or args.trg_corpus_params is None:
@@ -159,11 +177,11 @@ def main_train():
     # Select device
     if torch.cuda.is_available():
         device = torch.device(args.cuda)
-        if args.bleu_device == '':
-            args.bleu_device = args.cuda
     else:
         device = torch.device('cpu')
-        args.bleu_device = 'cpu'
+
+    if args.bleu_device == '':
+        args.bleu_device = device
 
     current_time = str(datetime.datetime.now().timestamp())
     run_dir = 'run_' + current_time + '/'
@@ -189,13 +207,12 @@ def main_train():
             direction.append(optimizer)
         return optimizer
 
-    if os.path.isfile(args.metadata_path):
-        metadata = torch.load(args.metadata_path)
-        bpemb_en = metadata.init_bpe_module()
-        word_dict: BpeWordDict = torch.load(metadata.word_dict_path)
-        field_dict: LabelDict = torch.load(metadata.field_dict_path)
-    else:
-        bpemb_en, word_dict, field_dict = preprocess(args.emb_dim, args.word_vocab_size)
+    assert os.path.isfile(args.metadata_path)
+
+    metadata = torch.load(args.metadata_path)
+    bpemb_en = metadata.init_bpe_module()
+    word_dict: BpeWordDict = torch.load(metadata.word_dict_path)
+    field_dict: LabelDict = torch.load(metadata.field_dict_path)
 
     args.hidden = bpemb_en.dim + bpemb_en.dim // 2
     if not args.disable_bidirectional:
@@ -373,8 +390,7 @@ def main_train():
         if not args.disable_backtranslation:
             trgback2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers,
                                           corpus=data.BacktranslatorCorpusReader(corpus=src_corpus_path,
-                                                                                 translator=src2trg_translator,
-                                                                                 beam_size=args.beam_size),
+                                                                                 translator=src2trg_translator),
                                           batch_size=args.batch, iters_per_epoch=iters_per_epoch)
             trainers.append(trgback2src_trainer)
 
@@ -384,8 +400,7 @@ def main_train():
         if not args.disable_backtranslation:
             srcback2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers,
                                           corpus=data.BacktranslatorCorpusReader(corpus=trg_corpus_path,
-                                                                                 translator=trg2src_translator,
-                                                                                 beam_size=args.beam_size),
+                                                                                 translator=trg2src_translator),
                                           batch_size=args.batch, iters_per_epoch=iters_per_epoch)
             trainers.append(srcback2trg_trainer)
     elif args.corpus_mode == 'para':
