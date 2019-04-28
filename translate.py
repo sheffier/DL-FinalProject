@@ -202,7 +202,7 @@ def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, que):
                     content_batch.append(content_ids)
                     labels_batch.append(labels_ids)
 
-            if args.beam_size <= 0 and len(content_batch) > 0:
+            if len(content_batch) > 0:
                 for idx, (w_trans, f_trans, _) in enumerate(zip(*translator.greedy(content_batch, labels_batch, train=False))):
                     w_str_trans = bpemb_en.decode_ids(w_trans)
                     f_str_trans = " ".join([translator.trg_field_dict.id2word[field_idx] for field_idx in f_trans])
@@ -215,8 +215,6 @@ def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, que):
                         print(f_str_trans)
                         fout_content.write('\n')
                         fout_labels.write('\n')
-            elif len(content_batch) > 0:
-                pass
 
     que.put(device)
 
@@ -232,20 +230,21 @@ def trans(args, input_filepath, output_dir, ref_filepath, model, bpemb_en, que):
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Translate using a pre-trained model')
-    parser.add_argument('--model', type=str, default='', help='a .pth model file previously trained with train.py')
     parser.add_argument('--model_list', type=str, default='', help='a list of (space separated) model files')
     parser.add_argument('--batch_size', type=int, default=50, help='the batch size (defaults to 50)')
-    parser.add_argument('--beam_size', type=int, default=0, help='the beam size (defaults to 12, 0 for greedy search)')
     parser.add_argument('--encoding', default='utf-8',
                         help='the character encoding for input/output (defaults to utf-8)')
     parser.add_argument('--testset_path', type=str, default='./data/processed_data/valid',
-                        help='test data path')
-    parser.add_argument('--device_list', type=str, default='cuda:0')
-    parser.add_argument('--prefix', type=str, default='MONO')
+                        help='dataset to evaluate with BLEU metric')
+    parser.add_argument('--device_list', type=str, default='cuda:0',
+                        help='a list of (space separated) device names')
+    parser.add_argument('--prefix', type=str, default='MONO',
+                        help='When model_lost argument is empty, the module can perform bleu evaluation on all files'
+                             'with a common prefix')
     parser.add_argument('--train_corpus_mode', type=str, default='MONO', help='MONO/PARA')
     parser.add_argument('--direction', type=str, default='table2text', help='table2text/text2table')
-    parser.add_argument('--log_dir', type=str, default='logs')
-    parser.add_argument('--translation_dir', type=str, default='translations')
+    parser.add_argument('--log_dir', type=str, default='logs', help='directory for saving logs')
+    parser.add_argument('--translation_dir', type=str, default='translations', help='directory for saving translations')
 
     args = parser.parse_args()
 
@@ -300,18 +299,11 @@ def main():
 
         print("Ref file created!")
 
-    if args.model == '':
-        model_list_pathname = os.path.abspath(args.model_list)
-        if os.path.isfile(model_list_pathname):
-            with open(model_list_pathname, encoding=args.encoding, errors='surrogateescape') as model_list_file:
-                model_files = model_list_file.readlines()
-                assert len(model_files) == 1, "file should have a single line with space separated model files"
-                model_files = model_files.split()
-        else:
-            model_files = sorted([currFile for currFile in currDir.glob(currPatt)],
+    if args.model_list == '':
+        model_files = sorted([currFile for currFile in currDir.glob(currPatt)],
                                  key=lambda x: int(re.search(r".it(?P<it>[\d]*)", str(x)).group('it')),reverse=True)
     else:
-        model_files = [args.model]
+        model_files = args.model_list.split()
 
     print("Number of models: %d" % (len(model_files)))
 

@@ -35,7 +35,6 @@ from contextlib import ExitStack
 from preprocess import preprocess
 from torch.nn import functional as F
 from tensorboardX import SummaryWriter
-from src.utils import plot_grad_flow
 from src.utils import get_num_lines
 from translate import calc_bleu
 
@@ -57,22 +56,15 @@ def main_train():
                                help='the target corpus of parallel data(type,path). Type = text/table')
     # Maybe add src/target type (i.e. text/table)
     corpora_group.add_argument('--corpus_mode', type=str, default='mono',
-                               help='training mode: "mono" (unsupervised) / "para" (supervised) / "semi-mono"')
+                               help='training mode: "mono" (unsupervised) / "para" (supervised)')
 
     corpora_group.add_argument('--max_sentence_length', type=int, default=50, help='the maximum sentence length for training (defaults to 50)')
     corpora_group.add_argument('--cache', type=int, default=100000, help='the cache size (in sentences) for corpus reading (defaults to 1000000)')
-    corpora_group.add_argument('--cache_parallel', type=int, default=None, help='the cache size (in sentences) for parallel corpus reading')
 
     # Embeddings/vocabulary
     embedding_group = parser.add_argument_group('embeddings', 'Embedding related arguments; either give pre-trained embeddings, or a vocabulary and embedding dimensionality to randomly initialize them')
     embedding_group.add_argument('--emb_dim', type=int, default=100, help='the number of dimensions for the embedding layer')
     embedding_group.add_argument('--word_vocab_size', type=int, default=100, help='word vocabulary size')
-    embedding_group.add_argument('--cutoff', type=int, default=0, help='cutoff vocabulary to the given size')
-
-    # ???
-    embedding_group.add_argument('--learn_encoder_embeddings', action='store_true', help='learn the encoder embeddings instead of using the pre-trained ones')
-    embedding_group.add_argument('--fixed_decoder_embeddings', action='store_true', help='use fixed embeddings in the decoder instead of learning them from scratch')
-    embedding_group.add_argument('--fixed_generator', action='store_true', help='use fixed embeddings in the output softmax instead of learning it from scratch')
 
     # Architecture
     architecture_group = parser.add_argument_group('architecture', 'Architecture related arguments')
@@ -120,7 +112,7 @@ def main_train():
     logging_group.add_argument('--print_level', type=str, default='info', help='logging level [debug | info]')
 
     # Other
-    parser.add_argument('--preprocess_metadata_path', type=str, default='', help='Path of bin file containing preprocess metadata')
+    parser.add_argument('--metadata_path', type=str, default='', help='Path of bin file containing preprocess metadata')
     parser.add_argument('--encoding', default='utf-8', help='the character encoding for input/output (defaults to utf-8)')
     parser.add_argument('--cuda', type=str, default='cuda:0')
     parser.add_argument('--bleu_device', type=str, default='')
@@ -197,8 +189,8 @@ def main_train():
             direction.append(optimizer)
         return optimizer
 
-    if os.path.isfile(args.preprocess_metadata_path):
-        metadata = torch.load(args.preprocess_metadata_path)
+    if os.path.isfile(args.metadata_path):
+        metadata = torch.load(args.metadata_path)
         bpemb_en = metadata.init_bpe_module()
         word_dict: BpeWordDict = torch.load(metadata.word_dict_path)
         field_dict: LabelDict = torch.load(metadata.field_dict_path)
@@ -292,7 +284,7 @@ def main_train():
 
     discriminator = None
 
-    if (args.corpus_mode in ['mono', 'semi-mono']) and not args.disable_discriminator:
+    if (args.corpus_mode == 'mono') and not args.disable_discriminator:
         discriminator = Discriminator(args.hidden, args.dis_hidden, args.n_dis_layers, args.dropout)
         discriminator = discriminator.to(device)
 
@@ -359,44 +351,7 @@ def main_train():
     iters_per_epoch = int(np.ceil(corpus_size / args.batch))
     print("CORPUS_SIZE = %d | BATCH_SIZE = %d | ITERS_PER_EPOCH = %d" % (corpus_size, args.batch, iters_per_epoch))
 
-    if args.corpus_mode in ['mono', 'semi-mono']:
-        if args.corpus_mode == 'semi-mono':
-            args.src_para_corpus_params = args.src_para_corpus_params.split(',')
-            args.trg_para_corpus_params = args.trg_para_corpus_params.split(',')
-            assert len(args.src_para_corpus_params) == 2
-            assert len(args.trg_para_corpus_params) == 2
-
-            src_para_type, src_para_corpus = args.src_para_corpus_params
-            trg_para_type, trg_para_corpus = args.trg_para_corpus_params
-
-            src_para_type = src_para_type.strip()
-            src_para_corpus = src_para_corpus.strip()
-            trg_para_type = trg_para_type.strip()
-            trg_para_corpus = trg_para_corpus.strip()
-
-            assert src_para_type != trg_para_type
-            assert (src_para_type in ['table', 'text']) and (trg_para_type in ['table', 'text'])
-
-            fsrc_content = open(src_para_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
-            fsrc_labels = open(src_para_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
-            ftrg_content = open(trg_para_corpus + '.content', encoding=args.encoding, errors='surrogateescape')
-            ftrg_labels = open(trg_para_corpus + '.labels', encoding=args.encoding, errors='surrogateescape')
-            src_para_corpus = data.CorpusReader(fsrc_content, fsrc_labels, trg_word_file=ftrg_content,
-                                           trg_field_file=ftrg_labels,
-                                           max_sentence_length=args.max_sentence_length,
-                                           cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
-            src2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers, corpus=src_para_corpus,
-                                      batch_size=args.batch)
-            trainers.append(src2trg_trainer)
-
-            trg_para_corpus = data.CorpusReader(ftrg_content, ftrg_labels, trg_word_file=fsrc_content,
-                                           trg_field_file=fsrc_labels,
-                                           max_sentence_length=args.max_sentence_length,
-                                           cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
-            trg2src_trainer = Trainer(translator=trg2src_translator, optimizers=trg2src_optimizers, corpus=trg_para_corpus,
-                                      batch_size=args.batch)
-            trainers.append(trg2src_trainer)
-
+    if args.corpus_mode == 'mono':
         f_content = open(src_corpus_path + '.content', encoding=args.encoding, errors='surrogateescape')
         f_labels = open(src_corpus_path + '.labels', encoding=args.encoding, errors='surrogateescape')
         src_corpus_path = data.CorpusReader(f_content, f_labels, max_sentence_length=args.max_sentence_length,
@@ -440,7 +395,7 @@ def main_train():
         ftrg_labels = open(trg_corpus_path + '.labels', encoding=args.encoding, errors='surrogateescape')
         corpus = data.CorpusReader(fsrc_content, fsrc_labels, trg_word_file=ftrg_content, trg_field_file=ftrg_labels,
                                    max_sentence_length=args.max_sentence_length,
-                                   cache_size=args.cache if args.cache_parallel is None else args.cache_parallel)
+                                   cache_size=args.cache)
         src2trg_trainer = Trainer(translator=src2trg_translator, optimizers=src2trg_optimizers, corpus=corpus,
                                   batch_size=args.batch, iters_per_epoch=iters_per_epoch)
         trainers.append(src2trg_trainer)
@@ -479,7 +434,7 @@ def main_train():
 
             src2trg_validator = Validator(src2trg_translator, src_content, trg_content, src_labels, trg_labels)
 
-            if args.corpus_mode in ['mono', 'semi-mono']:
+            if args.corpus_mode == 'mono':
                 src2src_validator = Validator(src2src_translator, src_content, src_content, src_labels, src_labels)
 
                 trg2src_validator = Validator(trg2src_translator, trg_content, src_content, trg_labels, src_labels)
@@ -500,7 +455,7 @@ def main_train():
     loggers = []
     semi_loggers = []
 
-    if args.corpus_mode in ['mono', 'semi-mono']:
+    if args.corpus_mode == 'mono':
         if not args.disable_backtranslation:
             loggers.append(Logger('Source to target (backtranslation)', srcback2trg_trainer, src2trg_validator,
                                   None, args.encoding, short_name='src2trg_bt', train_writer=train_writer,
@@ -513,11 +468,6 @@ def main_train():
                               short_name='src2src', train_writer=train_writer, valid_writer=valid_writer))
         loggers.append(Logger('Target to target', trg2trg_trainer, trg2trg_validator, None, args.encoding,
                               short_name='trg2trg', train_writer=train_writer, valid_writer=valid_writer))
-        if args.corpus_mode == 'semi-mono':
-            semi_loggers.append(Logger('Source to target', src2trg_trainer, [], None, args.encoding,
-                                       short_name='src2trg_para', train_writer=train_writer, valid_writer=valid_writer))
-            semi_loggers.append(Logger('Target to source', trg2src_trainer, [], None, args.encoding,
-                                       short_name='trg2src_para', train_writer=train_writer, valid_writer=valid_writer))
     elif args.corpus_mode == 'para':
         loggers.append(Logger('Source to target', src2trg_trainer, src2trg_validator, None, args.encoding,
                               short_name='src2trg_para', train_writer=train_writer, valid_writer=valid_writer))
@@ -550,26 +500,10 @@ def main_train():
         print("Ref file created!")
 
     # Training
-    if args.corpus_mode == 'semi-mono':
-        for curr_iter in range(1, 12000):
-            print_dbg = (0 != args.dbg_print_interval) and (curr_iter % args.dbg_print_interval == 0)
-
-            for trainer in trainers[:2]:
-                trainer.step(print_dbg=print_dbg, include_field_loss=not args.disable_field_loss)
-
-            if curr_iter % args.log_interval == 0:
-                print('[{0}] PRE-TRAIN STEP {1} x {2}'.format(args.save, curr_iter, args.batch))
-                for logger in semi_loggers:
-                    logger.log(curr_iter)
-
-        first_trainer = 2
-    else:
-        first_trainer = 0
-
     for curr_iter in range(1, args.iterations + 1):
         print_dbg = (0 != args.dbg_print_interval) and (curr_iter % args.dbg_print_interval == 0)
 
-        for trainer in trainers[first_trainer:]:
+        for trainer in trainers:
             trainer.step(print_dbg=print_dbg, include_field_loss=not args.disable_field_loss)
 
         if args.save is not None and args.save_interval > 0 and curr_iter % args.save_interval == 0:
@@ -820,14 +754,13 @@ class Validator:
 
 class Logger:
     def __init__(self, full_name, trainer, validator=None, output_prefix=None, encoding='utf-8', short_name=None,
-                 train_writer=None, valid_writer=None, show_grad_flow=False):
+                 train_writer=None, valid_writer=None):
         self.full_name = full_name
         self.short_name = short_name
         self.trainer = trainer
         self.validator = validator
         self.train_writer = train_writer
         self.valid_writer = valid_writer
-        self.show_grad_flow = show_grad_flow
         self.output_prefix = output_prefix
         self.encoding = encoding
 
@@ -853,10 +786,6 @@ class Logger:
             self.train_writer.add_scalar(self.short_name + '/field_loss', f_loss, step)
             self.train_writer.add_scalar(self.short_name + '/disc_loss', dis_loss, step)
             self.train_writer.add_scalar(self.short_name + '/ppl', ppl, step)
-
-        if self.show_grad_flow:
-            plot_grad_flow(self.trainer.translator.encoder.named_parameters())
-            plot_grad_flow(self.trainer.translator.decoder.named_parameters())
 
         sys.stdout.flush()
 
