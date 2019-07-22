@@ -1,7 +1,7 @@
 Unsupervised Table-2-Text
 ==============
 
-This repository contains contains the implementation of the final project of the [Deep Learning](https://www30.tau.ac.il/yedion/syllabus.asp?course=0368448801) course taken at Fall 2018.
+This repository contains contains the implementation of the final project of the [Deep Learning](https://www30.tau.ac.il/yedion/syllabus.asp?course=0368448801) course taken at Fall 2018 as described in [Unsupervised Table-2-Text](./UnupervisedTable2Text.pdf).
 This README provides code explanation and usage.
 
 
